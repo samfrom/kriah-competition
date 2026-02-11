@@ -1,0 +1,2404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Kriah Competition - Hebrew Reading Challenge</title>
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#4338ca" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;500;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            torah: {
+              50: '#f0f4ff', 100: '#dbe4ff', 200: '#bac8ff', 300: '#91a7ff',
+              400: '#748ffc', 500: '#5c7cfa', 600: '#4c6ef5', 700: '#4263eb',
+              800: '#3b5bdb', 900: '#364fc7',
+            }
+          },
+          fontFamily: {
+            hebrew: ['Frank Ruhl Libre', 'serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; }
+    .hebrew-text { font-family: 'Frank Ruhl Libre', serif; direction: rtl; text-align: right; line-height: 2.2; }
+    @keyframes pulse-rec { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.7;transform:scale(1.05)} }
+    @keyframes score-pop { 0%{transform:scale(0);opacity:0} 50%{transform:scale(1.2)} 100%{transform:scale(1);opacity:1} }
+    @keyframes slide-up { 0%{transform:translateY(20px);opacity:0} 100%{transform:translateY(0);opacity:1} }
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    @keyframes bounce-in { 0%{transform:scale(0) rotate(-10deg);opacity:0} 50%{transform:scale(1.15) rotate(3deg)} 70%{transform:scale(0.95)} 100%{transform:scale(1) rotate(0);opacity:1} }
+    @keyframes glow-pulse { 0%,100%{box-shadow:0 0 20px rgba(245,158,11,0.3)} 50%{box-shadow:0 0 40px rgba(245,158,11,0.6)} }
+    @keyframes streak-shake { 0%,100%{transform:translateX(0)} 10%,30%,50%,70%,90%{transform:translateX(-2px)} 20%,40%,60%,80%{transform:translateX(2px)} }
+    @keyframes fade-in-up { 0%{opacity:0;transform:translateY(10px)} 100%{opacity:1;transform:translateY(0)} }
+    .recording-pulse { animation: pulse-rec 1.5s ease-in-out infinite; }
+    .score-pop { animation: score-pop 0.6s ease-out; }
+    .slide-up { animation: slide-up 0.4s ease-out; }
+    .bounce-in { animation: bounce-in 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+    .glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
+    .streak-shake { animation: streak-shake 0.5s ease-in-out; }
+    .fade-in-up { animation: fade-in-up 0.4s ease-out both; }
+    .shimmer { background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+    input[type="range"] { -webkit-appearance: none; height: 8px; border-radius: 4px; outline: none; touch-action: manipulation; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #4c6ef5; cursor: pointer; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    @media (min-width: 640px) {
+      input[type="range"]::-webkit-slider-thumb { width: 20px; height: 20px; border: 2px solid white; }
+    }
+    .safe-area-top { padding-top: env(safe-area-inset-top, 0px); }
+  </style>
+  <script>
+    // Register service worker (only works on HTTPS / localhost, not file://)
+    if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // ===== DATA: PARSHIOT =====
+    const BOOKS = [
+      { id:'bereishit', name:'Bereishit', hebrewName:'בראשית', englishName:'Genesis', icon:'🌍', color:'from-green-500 to-emerald-600' },
+      { id:'shemot', name:'Shemot', hebrewName:'שמות', englishName:'Exodus', icon:'🔥', color:'from-red-500 to-orange-600' },
+      { id:'vayikra', name:'Vayikra', hebrewName:'ויקרא', englishName:'Leviticus', icon:'🕊️', color:'from-purple-500 to-violet-600' },
+      { id:'bamidbar', name:'Bamidbar', hebrewName:'במדבר', englishName:'Numbers', icon:'⭐', color:'from-amber-500 to-yellow-600' },
+      { id:'devarim', name:'Devarim', hebrewName:'דברים', englishName:'Deuteronomy', icon:'📜', color:'from-blue-500 to-indigo-600' },
+    ];
+
+    const PARSHIOT = [
+      { id:'bereishit',name:'Bereishit',hebrewName:'בראשית',book:'bereishit',order:1,rishonRef:'Genesis 1:1-2:3' },
+      { id:'noach',name:'Noach',hebrewName:'נח',book:'bereishit',order:2,rishonRef:'Genesis 6:9-6:22' },
+      { id:'lech-lecha',name:'Lech Lecha',hebrewName:'לך לך',book:'bereishit',order:3,rishonRef:'Genesis 12:1-12:13' },
+      { id:'vayera',name:'Vayera',hebrewName:'וירא',book:'bereishit',order:4,rishonRef:'Genesis 18:1-18:14' },
+      { id:'chayei-sarah',name:'Chayei Sarah',hebrewName:'חיי שרה',book:'bereishit',order:5,rishonRef:'Genesis 23:1-23:16' },
+      { id:'toldot',name:'Toldot',hebrewName:'תולדות',book:'bereishit',order:6,rishonRef:'Genesis 25:19-26:5' },
+      { id:'vayetze',name:'Vayetze',hebrewName:'ויצא',book:'bereishit',order:7,rishonRef:'Genesis 28:10-28:22' },
+      { id:'vayishlach',name:'Vayishlach',hebrewName:'וישלח',book:'bereishit',order:8,rishonRef:'Genesis 32:4-32:13' },
+      { id:'vayeshev',name:'Vayeshev',hebrewName:'וישב',book:'bereishit',order:9,rishonRef:'Genesis 37:1-37:11' },
+      { id:'miketz',name:'Miketz',hebrewName:'מקץ',book:'bereishit',order:10,rishonRef:'Genesis 41:1-41:14' },
+      { id:'vayigash',name:'Vayigash',hebrewName:'ויגש',book:'bereishit',order:11,rishonRef:'Genesis 44:18-44:30' },
+      { id:'vayechi',name:'Vayechi',hebrewName:'ויחי',book:'bereishit',order:12,rishonRef:'Genesis 47:28-48:9' },
+      { id:'shemot',name:'Shemot',hebrewName:'שמות',book:'shemot',order:1,rishonRef:'Exodus 1:1-1:17' },
+      { id:'vaera',name:"Va'era",hebrewName:'וארא',book:'shemot',order:2,rishonRef:'Exodus 6:2-6:13' },
+      { id:'bo',name:'Bo',hebrewName:'בא',book:'shemot',order:3,rishonRef:'Exodus 10:1-10:11' },
+      { id:'beshalach',name:'Beshalach',hebrewName:'בשלח',book:'shemot',order:4,rishonRef:'Exodus 13:17-14:8' },
+      { id:'yitro',name:'Yitro',hebrewName:'יתרו',book:'shemot',order:5,rishonRef:'Exodus 18:1-18:12' },
+      { id:'mishpatim',name:'Mishpatim',hebrewName:'משפטים',book:'shemot',order:6,rishonRef:'Exodus 21:1-21:19' },
+      { id:'terumah',name:'Terumah',hebrewName:'תרומה',book:'shemot',order:7,rishonRef:'Exodus 25:1-25:16' },
+      { id:'tetzaveh',name:'Tetzaveh',hebrewName:'תצוה',book:'shemot',order:8,rishonRef:'Exodus 27:20-28:12' },
+      { id:'ki-tisa',name:'Ki Tisa',hebrewName:'כי תשא',book:'shemot',order:9,rishonRef:'Exodus 30:11-31:17' },
+      { id:'vayakhel',name:'Vayakhel',hebrewName:'ויקהל',book:'shemot',order:10,rishonRef:'Exodus 35:1-35:20' },
+      { id:'pekudei',name:'Pekudei',hebrewName:'פקודי',book:'shemot',order:11,rishonRef:'Exodus 38:21-39:1' },
+      { id:'vayikra',name:'Vayikra',hebrewName:'ויקרא',book:'vayikra',order:1,rishonRef:'Leviticus 1:1-1:13' },
+      { id:'tzav',name:'Tzav',hebrewName:'צו',book:'vayikra',order:2,rishonRef:'Leviticus 6:1-6:11' },
+      { id:'shemini',name:'Shemini',hebrewName:'שמיני',book:'vayikra',order:3,rishonRef:'Leviticus 9:1-9:16' },
+      { id:'tazria',name:'Tazria',hebrewName:'תזריע',book:'vayikra',order:4,rishonRef:'Leviticus 12:1-13:5' },
+      { id:'metzora',name:'Metzora',hebrewName:'מצורע',book:'vayikra',order:5,rishonRef:'Leviticus 14:1-14:12' },
+      { id:'acharei-mot',name:'Acharei Mot',hebrewName:'אחרי מות',book:'vayikra',order:6,rishonRef:'Leviticus 16:1-16:17' },
+      { id:'kedoshim',name:'Kedoshim',hebrewName:'קדושים',book:'vayikra',order:7,rishonRef:'Leviticus 19:1-19:14' },
+      { id:'emor',name:'Emor',hebrewName:'אמור',book:'vayikra',order:8,rishonRef:'Leviticus 21:1-21:15' },
+      { id:'behar',name:'Behar',hebrewName:'בהר',book:'vayikra',order:9,rishonRef:'Leviticus 25:1-25:13' },
+      { id:'bechukotai',name:'Bechukotai',hebrewName:'בחוקותי',book:'vayikra',order:10,rishonRef:'Leviticus 26:3-26:5' },
+      { id:'bamidbar',name:'Bamidbar',hebrewName:'במדבר',book:'bamidbar',order:1,rishonRef:'Numbers 1:1-1:19' },
+      { id:'naso',name:'Naso',hebrewName:'נשא',book:'bamidbar',order:2,rishonRef:'Numbers 4:21-4:37' },
+      { id:'behaalotecha',name:"Beha'alotecha",hebrewName:'בהעלותך',book:'bamidbar',order:3,rishonRef:'Numbers 8:1-8:14' },
+      { id:'shelach',name:'Shelach',hebrewName:'שלח',book:'bamidbar',order:4,rishonRef:'Numbers 13:1-13:20' },
+      { id:'korach',name:'Korach',hebrewName:'קרח',book:'bamidbar',order:5,rishonRef:'Numbers 16:1-16:13' },
+      { id:'chukat',name:'Chukat',hebrewName:'חקת',book:'bamidbar',order:6,rishonRef:'Numbers 19:1-19:17' },
+      { id:'balak',name:'Balak',hebrewName:'בלק',book:'bamidbar',order:7,rishonRef:'Numbers 22:2-22:12' },
+      { id:'pinchas',name:'Pinchas',hebrewName:'פינחס',book:'bamidbar',order:8,rishonRef:'Numbers 25:10-26:4' },
+      { id:'matot',name:'Matot',hebrewName:'מטות',book:'bamidbar',order:9,rishonRef:'Numbers 30:2-30:17' },
+      { id:'masei',name:'Masei',hebrewName:'מסעי',book:'bamidbar',order:10,rishonRef:'Numbers 33:1-33:10' },
+      { id:'devarim',name:'Devarim',hebrewName:'דברים',book:'devarim',order:1,rishonRef:'Deuteronomy 1:1-1:10' },
+      { id:'vaetchanan',name:"Va'etchanan",hebrewName:'ואתחנן',book:'devarim',order:2,rishonRef:'Deuteronomy 3:23-4:4' },
+      { id:'eikev',name:'Eikev',hebrewName:'עקב',book:'devarim',order:3,rishonRef:'Deuteronomy 7:12-8:10' },
+      { id:'reeh',name:"Re'eh",hebrewName:'ראה',book:'devarim',order:4,rishonRef:'Deuteronomy 11:26-12:10' },
+      { id:'shoftim',name:'Shoftim',hebrewName:'שופטים',book:'devarim',order:5,rishonRef:'Deuteronomy 16:18-17:13' },
+      { id:'ki-tetze',name:'Ki Tetze',hebrewName:'כי תצא',book:'devarim',order:6,rishonRef:'Deuteronomy 21:10-21:21' },
+      { id:'ki-tavo',name:'Ki Tavo',hebrewName:'כי תבוא',book:'devarim',order:7,rishonRef:'Deuteronomy 26:1-26:11' },
+      { id:'nitzavim',name:'Nitzavim',hebrewName:'ניצבים',book:'devarim',order:8,rishonRef:'Deuteronomy 29:9-29:28' },
+      { id:'vayelech',name:'Vayelech',hebrewName:'וילך',book:'devarim',order:9,rishonRef:'Deuteronomy 31:1-31:6' },
+      { id:'haazinu',name:"Ha'azinu",hebrewName:'האזינו',book:'devarim',order:10,rishonRef:'Deuteronomy 32:1-32:6' },
+      { id:'vezot-habracha',name:"V'zot Habracha",hebrewName:'וזאת הברכה',book:'devarim',order:11,rishonRef:'Deuteronomy 33:1-33:7' },
+    ];
+
+    const getParshiotForBook = (bookId) => PARSHIOT.filter(p => p.book === bookId).sort((a,b) => a.order - b.order);
+    const getParsha = (parshaId) => PARSHIOT.find(p => p.id === parshaId);
+    const getBook = (bookId) => BOOKS.find(b => b.id === bookId);
+
+    // ===== HEBCAL PARSHA MAPPING =====
+    const HEBCAL_TO_PARSHA = {
+      'Bereishit':'bereishit','Noach':'noach','Lech-Lecha':'lech-lecha','Vayera':'vayera',
+      'Chayei Sara':'chayei-sarah','Toldot':'toldot','Vayetzei':'vayetze','Vayishlach':'vayishlach',
+      'Vayeshev':'vayeshev','Miketz':'miketz','Vayigash':'vayigash','Vayechi':'vayechi',
+      'Shemot':'shemot',"Va'eira":'vaera','Bo':'bo','Beshalach':'beshalach',
+      'Yitro':'yitro','Mishpatim':'mishpatim','Terumah':'terumah','Tetzaveh':'tetzaveh',
+      'Ki Tisa':'ki-tisa','Vayakhel':'vayakhel','Pekudei':'pekudei',
+      'Vayikra':'vayikra','Tzav':'tzav','Shmini':'shemini','Shemini':'shemini',
+      'Tazria':'tazria','Metzora':'metzora','Achrei Mot':'acharei-mot',
+      'Kedoshim':'kedoshim','Emor':'emor','Behar':'behar','Bechukotai':'bechukotai',
+      'Bamidbar':'bamidbar','Nasso':'naso','Naso':'naso',
+      "Beha'alotcha":'behaalotecha',"Beha'alotecha":'behaalotecha',
+      "Sh'lach":'shelach','Shelach':'shelach','Korach':'korach','Chukat':'chukat',
+      'Balak':'balak','Pinchas':'pinchas','Matot':'matot','Masei':'masei',
+      'Devarim':'devarim',"Va'etchanan":'vaetchanan','Eikev':'eikev',
+      "Re'eh":'reeh','Shoftim':'shoftim','Ki Teitzei':'ki-tetze','Ki Tetze':'ki-tetze',
+      'Ki Tavo':'ki-tavo','Nitzavim':'nitzavim','Vayeilech':'vayelech','Vayelech':'vayelech',
+      "Ha'azinu":'haazinu','Haazinu':'haazinu',
+      "V'Zot HaBerachah":'vezot-habracha',"Vezot Habracha":'vezot-habracha',
+    };
+
+    async function fetchThisWeeksParsha() {
+      try {
+        // Use Hebcal Shabbat API (London / Golders Green area)
+        const resp = await fetch('https://www.hebcal.com/shabbat?cfg=json&geonameid=2643743');
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        const parashat = data.items?.find(i => i.category === 'parashat');
+        if (!parashat) return null;
+        const name = parashat.title.replace('Parashat ', '');
+        // Handle double parshiot like "Vayakhel-Pekudei"
+        if (name.includes('-')) {
+          const parts = name.split('-').map(p => p.trim());
+          const ids = parts.map(p => HEBCAL_TO_PARSHA[p]).filter(Boolean);
+          if (ids.length > 0) return { ids, displayName: name, hebrewDate: parashat.hebrew };
+        }
+        const id = HEBCAL_TO_PARSHA[name];
+        if (id) return { ids: [id], displayName: name, hebrewDate: parashat.hebrew };
+      } catch (e) {
+        console.warn('Could not fetch this week\'s parsha:', e);
+      }
+      return null;
+    }
+
+    // ===== RANKS =====
+    const RANKS = [
+      { id:'talmid',name:'Talmid',hebrewName:'תלמיד',minPoints:0,icon:'📖',description:'Student' },
+      { id:'chaver',name:'Chaver',hebrewName:'חבר',minPoints:150,icon:'🎓',description:'Scholar' },
+      { id:'baki',name:'Baki',hebrewName:'בקי',minPoints:400,icon:'🏅',description:'Expert' },
+      { id:'rav',name:'Rav',hebrewName:'רב',minPoints:800,icon:'👑',description:'Master' },
+      { id:'gaon',name:'Gaon',hebrewName:'גאון',minPoints:1500,icon:'⭐',description:'Genius' },
+    ];
+
+    const getRank = (pts) => { let r = RANKS[0]; for(const rank of RANKS) { if(pts >= rank.minPoints) r = rank; } return r; };
+    const getNextRank = (pts) => { const cur = getRank(pts); const idx = RANKS.findIndex(r=>r.id===cur.id); if(idx>=RANKS.length-1) return null; const next = RANKS[idx+1]; return { nextRank:next, pointsNeeded:next.minPoints-pts, progress:pts/next.minPoints }; };
+
+    // ===== SCORING =====
+    function calculateSpeedScore(durationSeconds, wordCount) {
+      if(!durationSeconds || !wordCount || durationSeconds<=0) return 0;
+      const wpm = (wordCount/durationSeconds)*60;
+      let s;
+      if(wpm<20) s=5;
+      else if(wpm<40) s=10+((wpm-20)/20)*15;
+      else if(wpm<80) s=25+((wpm-40)/40)*20;
+      else if(wpm<=100) s=45+((wpm-80)/20)*5;
+      else s=50; // Plateau: fast readers keep full marks
+      return Math.round(Math.min(50,Math.max(0,s)));
+    }
+
+    function calculateAccuracyScore({pronunciation=0,fluency=0,confidence=0}) {
+      return Math.min(50,Math.max(0,Math.round(pronunciation+fluency+confidence)));
+    }
+
+    function calculateRoundScore(speedScore, accuracyScore) {
+      const base = speedScore + accuracyScore;
+      const bonuses = [];
+      if(accuracyScore===50) bonuses.push({name:'Perfect Read!',points:15,icon:'🌟'});
+      if(speedScore>=45) bonuses.push({name:'Speed Demon!',points:10,icon:'⚡'});
+      if(base>=90) bonuses.push({name:'Outstanding!',points:10,icon:'🔥'});
+      else if(base>=75) bonuses.push({name:'Great Job!',points:5,icon:'💪'});
+      const bonusPoints = bonuses.reduce((s,b)=>s+b.points,0);
+      return { speedScore, accuracyScore, baseScore:base, bonuses, bonusPoints, totalScore:base+bonusPoints };
+    }
+
+    // ===== STORAGE =====
+    const SKEYS = { PLAYERS:'kriah_players', ROUNDS:'kriah_rounds', SEASON:'kriah_current_season', TEXT_CACHE:'kriah_text_cache' };
+    const getPlayers = () => JSON.parse(localStorage.getItem(SKEYS.PLAYERS)||'[]');
+    const savePlayers = (p) => localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(p));
+    const createPlayer = (name) => { const ps=getPlayers(); const np={id:crypto.randomUUID(),name,createdAt:new Date().toISOString()}; ps.push(np); savePlayers(ps); return np; };
+    const getRounds = () => JSON.parse(localStorage.getItem(SKEYS.ROUNDS)||'[]');
+    const saveRounds = (r) => localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(r));
+    const addRound = (round) => { const rs=getRounds(); const nr={id:crypto.randomUUID(),...round,createdAt:new Date().toISOString()}; rs.push(nr); saveRounds(rs); return nr; };
+    const getCurrentSeason = () => JSON.parse(localStorage.getItem(SKEYS.SEASON)||'{"bookId":"bereishit"}');
+    const setCurrentSeason = (bookId) => localStorage.setItem(SKEYS.SEASON, JSON.stringify({bookId}));
+    const resetAllData = () => { Object.values(SKEYS).forEach(k=>localStorage.removeItem(k)); localStorage.removeItem('kriah_onboarding_seen'); localStorage.removeItem('kriah_active_player'); };
+
+    // Active player (who's logged in)
+    const getActivePlayerId = () => localStorage.getItem('kriah_active_player');
+    const setActivePlayerId = (id) => localStorage.setItem('kriah_active_player', id);
+    const clearActivePlayer = () => localStorage.removeItem('kriah_active_player');
+    const getActivePlayer = () => { const id = getActivePlayerId(); if(!id) return null; return getPlayers().find(p=>p.id===id) || null; };
+
+    // Text cache for Sefaria responses (v2 = stripped trop)
+    const TEXT_CACHE_VERSION = 'v3';
+    const getCachedText = (ref) => { try { const c = JSON.parse(localStorage.getItem(SKEYS.TEXT_CACHE)||'{}'); if(c._ver!==TEXT_CACHE_VERSION) { localStorage.removeItem(SKEYS.TEXT_CACHE); return null; } return c[ref] || null; } catch { return null; } };
+    const setCachedText = (ref, data) => { try { const c = JSON.parse(localStorage.getItem(SKEYS.TEXT_CACHE)||'{}'); c._ver=TEXT_CACHE_VERSION; c[ref] = data; localStorage.setItem(SKEYS.TEXT_CACHE, JSON.stringify(c)); } catch {} };
+
+    // Onboarding tracking
+    const hasSeenOnboarding = () => localStorage.getItem('kriah_onboarding_seen') === 'true';
+    const markOnboardingSeen = () => localStorage.setItem('kriah_onboarding_seen', 'true');
+
+    // Export/import all data
+    function exportAllData() {
+      const data = { players:getPlayers(), rounds:getRounds(), season:getCurrentSeason(), exportedAt:new Date().toISOString(), version:1 };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `kriah-backup-${new Date().toISOString().slice(0,10)}.json`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importAllData(jsonString) {
+      try {
+        const data = JSON.parse(jsonString);
+        if (!data.players || !data.rounds) throw new Error('Invalid backup file');
+        savePlayers(data.players);
+        saveRounds(data.rounds);
+        if (data.season?.bookId) setCurrentSeason(data.season.bookId);
+        return { success:true, playerCount:data.players.length, roundCount:data.rounds.length };
+      } catch (e) {
+        return { success:false, error:e.message };
+      }
+    }
+
+    // ===== STATS HELPERS =====
+    function getPlayerStreak(playerId, allRounds) {
+      const playerRounds = allRounds.filter(r => r.playerId === playerId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      if (playerRounds.length === 0) return 0;
+      const getWeekKey = (dateStr) => {
+        const d = new Date(dateStr); d.setHours(0,0,0,0);
+        const day = d.getDay(); d.setDate(d.getDate() - day);
+        return d.toISOString().slice(0,10);
+      };
+      const weekKeys = [...new Set(playerRounds.map(r => getWeekKey(r.createdAt)))].sort().reverse();
+      const currentWeek = getWeekKey(new Date().toISOString());
+      // Allow current or previous week to count (in case it's early in the week)
+      const prevWeekDate = new Date(); prevWeekDate.setDate(prevWeekDate.getDate() - 7);
+      const prevWeek = getWeekKey(prevWeekDate.toISOString());
+      if (weekKeys[0] !== currentWeek && weekKeys[0] !== prevWeek) return 0;
+      let streak = 1;
+      for (let i = 1; i < weekKeys.length; i++) {
+        const diff = (new Date(weekKeys[i-1]) - new Date(weekKeys[i])) / (1000*60*60*24);
+        if (diff >= 6 && diff <= 8) streak++; else break;
+      }
+      return streak;
+    }
+
+    function getHeadToHead(players, allRounds) {
+      if (players.length < 2) return null;
+      // Find parshiot where multiple players competed
+      const parshaRounds = {};
+      allRounds.forEach(r => {
+        const key = `${r.parshaId}_${r.bookId}`;
+        if (!parshaRounds[key]) parshaRounds[key] = [];
+        parshaRounds[key].push(r);
+      });
+      // Build wins/losses between all player pairs
+      const records = {};
+      players.forEach(p1 => {
+        players.forEach(p2 => {
+          if (p1.id !== p2.id) {
+            const key = [p1.id, p2.id].sort().join('_');
+            if (!records[key]) records[key] = { p1Id: [p1.id, p2.id].sort()[0], p2Id: [p1.id, p2.id].sort()[1], wins1: 0, wins2: 0, draws: 0 };
+          }
+        });
+      });
+      Object.values(parshaRounds).forEach(rounds => {
+        if (rounds.length < 2) return;
+        // Compare all pairs in this parsha
+        for (let i = 0; i < rounds.length; i++) {
+          for (let j = i+1; j < rounds.length; j++) {
+            const r1 = rounds[i], r2 = rounds[j];
+            const key = [r1.playerId, r2.playerId].sort().join('_');
+            if (!records[key]) continue;
+            const isFirst = records[key].p1Id === r1.playerId;
+            if (r1.totalScore > r2.totalScore) { isFirst ? records[key].wins1++ : records[key].wins2++; }
+            else if (r2.totalScore > r1.totalScore) { isFirst ? records[key].wins2++ : records[key].wins1++; }
+            else records[key].draws++;
+          }
+        }
+      });
+      return records;
+    }
+
+    // ===== WEEKLY STATS =====
+    function getWeekStart(date) {
+      const d = new Date(date); d.setHours(0,0,0,0);
+      const day = d.getDay(); d.setDate(d.getDate() - day);
+      return d;
+    }
+    function getWeeklyRounds(allRounds) {
+      const weekStart = getWeekStart(new Date());
+      return allRounds.filter(r => new Date(r.createdAt) >= weekStart);
+    }
+    function isStreakAtRisk(playerId, allRounds) {
+      const streak = getPlayerStreak(playerId, allRounds);
+      if (streak === 0) return false;
+      const weekStart = getWeekStart(new Date());
+      const thisWeekRounds = allRounds.filter(r => r.playerId === playerId && new Date(r.createdAt) >= weekStart);
+      return thisWeekRounds.length === 0; // Has a streak but hasn't played this week
+    }
+
+    // ===== SEFARIA API (with caching) =====
+    function decodeHtmlEntities(html) {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = html;
+      return textarea.value;
+    }
+
+    function cleanSefariaText(rawHtml) {
+      if (typeof rawHtml !== 'string') return '';
+      let text = rawHtml.replace(/<[^>]*>/g, '');
+      text = decodeHtmlEntities(text);
+      text = text.replace(/\s*\{[פס]\}\s*/g, ' ');
+      // Strip cantillation marks (taamei hamikra / trop) - Unicode U+0591 to U+05AF
+      text = text.replace(/[\u0591-\u05AF]/g, '');
+      text = text.replace(/\s+/g, ' ').trim();
+      return text;
+    }
+
+    async function fetchParshaText(ref) {
+      // Check cache first
+      const cached = getCachedText(ref);
+      if (cached) return cached;
+
+      const sefariaRef = ref.replace(/ /g,'_');
+      const url = `https://www.sefaria.org/api/v3/texts/${encodeURIComponent(sefariaRef)}?version=source`;
+      const resp = await fetch(url);
+      if(!resp.ok) throw new Error('Sefaria API error: '+resp.status);
+      const data = await resp.json();
+      let texts = [];
+      if(data.versions && data.versions.length>0) {
+        const src = data.versions.find(v=>v.language==='he') || data.versions[0];
+        texts = flattenText(Array.isArray(src.text)?src.text:[src.text]);
+      }
+      const cleanAll = texts.map(t => cleanSefariaText(t)).filter(t => t.length > 0);
+      // Cap at 12 pesukim per round for readable, consistent length
+      const MAX_VERSES = 12;
+      const clean = cleanAll.slice(0, MAX_VERSES);
+      const full = clean.join(' ');
+      const result = { reference:ref, verses:clean, fullText:full, wordCount:full.split(/\s+/).filter(w=>w.length>0).length, totalVerses:cleanAll.length, capped:cleanAll.length>MAX_VERSES };
+
+      // Cache the result
+      setCachedText(ref, result);
+      return result;
+    }
+    function flattenText(arr) { const r=[]; for(const i of arr){if(Array.isArray(i))r.push(...flattenText(i));else if(typeof i==='string')r.push(i);} return r; }
+
+    // ===== AUDIO RECORDER HOOK =====
+    function useAudioRecorder() {
+      const [isRecording, setIsRecording] = useState(false);
+      const [duration, setDuration] = useState(0);
+      const [audioBlob, setAudioBlob] = useState(null);
+      const [audioUrl, setAudioUrl] = useState(null);
+      const [error, setError] = useState(null);
+      const mrRef = useRef(null);
+      const chunksRef = useRef([]);
+      const timerRef = useRef(null);
+      const startRef = useRef(null);
+
+      const startRecording = useCallback(async () => {
+        try {
+          setError(null); setAudioBlob(null); setAudioUrl(null); setDuration(0); chunksRef.current=[];
+          const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+          const mr = new MediaRecorder(stream, {mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm'});
+          mr.ondataavailable = (e) => { if(e.data.size>0) chunksRef.current.push(e.data); };
+          mr.onstop = () => { const blob=new Blob(chunksRef.current,{type:'audio/webm'}); setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob)); stream.getTracks().forEach(t=>t.stop()); };
+          mrRef.current = mr; mr.start(100);
+          setIsRecording(true); startRef.current=Date.now();
+          timerRef.current = setInterval(()=>setDuration(Math.floor((Date.now()-startRef.current)/1000)),100);
+        } catch(e) { setError('Could not access microphone. Please grant permission.'); }
+      }, []);
+
+      const stopRecording = useCallback(() => {
+        if(mrRef.current && mrRef.current.state!=='inactive') {
+          mrRef.current.stop(); setIsRecording(false);
+          clearInterval(timerRef.current);
+          setDuration(Math.round((Date.now()-startRef.current)/1000));
+        }
+      }, []);
+
+      const resetRecording = useCallback(() => {
+        if(audioUrl) URL.revokeObjectURL(audioUrl);
+        setAudioBlob(null); setAudioUrl(null); setDuration(0); setIsRecording(false); setError(null);
+      }, [audioUrl]);
+
+      return { isRecording, duration, audioBlob, audioUrl, error, startRecording, stopRecording, resetRecording };
+    }
+
+    // ===== PLAYER COLORS =====
+    const PLAYER_COLORS = [
+      { bg:'bg-blue-50', text:'text-blue-700', grad:'from-blue-500 to-indigo-600', accent:'#3b82f6', ring:'ring-blue-300' },
+      { bg:'bg-emerald-50', text:'text-emerald-700', grad:'from-emerald-500 to-teal-600', accent:'#10b981', ring:'ring-emerald-300' },
+      { bg:'bg-amber-50', text:'text-amber-700', grad:'from-amber-500 to-orange-600', accent:'#f59e0b', ring:'ring-amber-300' },
+      { bg:'bg-rose-50', text:'text-rose-700', grad:'from-rose-500 to-pink-600', accent:'#f43f5e', ring:'ring-rose-300' },
+      { bg:'bg-violet-50', text:'text-violet-700', grad:'from-violet-500 to-purple-600', accent:'#8b5cf6', ring:'ring-violet-300' },
+      { bg:'bg-cyan-50', text:'text-cyan-700', grad:'from-cyan-500 to-sky-600', accent:'#06b6d4', ring:'ring-cyan-300' },
+    ];
+    const getPlayerColor = (idx) => PLAYER_COLORS[idx % PLAYER_COLORS.length];
+
+    // ===== SVG ICONS =====
+    const Icon = ({d, size=20, className='', fill='none', strokeWidth=2}) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d}/></svg>
+    );
+    const Icons = {
+      home: (p) => <Icon d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10" {...p}/>,
+      trophy: (p) => <Icon d="M6 9H4.5a2.5 2.5 0 010-5H6 M18 9h1.5a2.5 2.5 0 000-5H18 M4 22h16 M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22 M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22 M18 2H6v7a6 6 0 1012 0V2z" {...p}/>,
+      users: (p) => <Icon d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M23 21v-2a4 4 0 00-3-3.87 M16 3.13a4 4 0 010 7.75 M9 7a4 4 0 110 0 4 4 0 010 0z" {...p}/>,
+      chevronRight: (p) => <Icon d="M9 18l6-6-6-6" {...p}/>,
+      arrowLeft: (p) => <Icon d="M19 12H5 M12 19l-7-7 7-7" {...p}/>,
+      check: (p) => <Icon d="M20 6L9 17l-5-5" {...p}/>,
+      mic: (p) => <Icon d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z M19 10v2a7 7 0 01-14 0v-2 M12 19v4 M8 23h8" {...p}/>,
+      square: (p) => <Icon d="M3 3h18v18H3z" {...p} fill="currentColor"/>,
+      upload: (p) => <Icon d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4 M17 8l-5-5-5 5 M12 3v12" {...p}/>,
+      download: (p) => <Icon d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4 M7 10l5 5 5-5 M12 15V3" {...p}/>,
+      play: (p) => <svg width={p?.size||20} height={p?.size||20} viewBox="0 0 24 24" fill="currentColor" stroke="none" className={p?.className||''}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+      star: (p) => <Icon d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="currentColor" {...p}/>,
+      book: (p) => <Icon d="M4 19.5A2.5 2.5 0 016.5 17H20 M4 4.5A2.5 2.5 0 016.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15z" {...p}/>,
+      volume: (p) => <Icon d="M11 5L6 9H2v6h4l5 4V5z M19.07 4.93a10 10 0 010 14.14 M15.54 8.46a5 5 0 010 7.07" {...p}/>,
+      trash: (p) => <Icon d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" {...p}/>,
+      userPlus: (p) => <Icon d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M8.5 7a4 4 0 110 0 4 4 0 010 0z M20 8v6 M23 11h-6" {...p}/>,
+      refresh: (p) => <Icon d="M1 4v6h6 M23 20v-6h-6 M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" {...p}/>,
+      award: (p) => <Icon d="M12 15l-3 8 3-2 3 2-3-8z M7.21 10.79A6 6 0 1116.79 10.79 6 6 0 017.21 10.79z" {...p}/>,
+      trendingUp: (p) => <Icon d="M23 6l-9.5 9.5-5-5L1 18" {...p}/>,
+      loader: (p) => <Icon d="M12 2v4 M12 18v4 M4.93 4.93l2.83 2.83 M16.24 16.24l2.83 2.83 M2 12h4 M18 12h4 M4.93 19.07l2.83-2.83 M16.24 7.76l2.83-2.83" className={`animate-spin ${p?.className||''}`} {...p}/>,
+      flame: (p) => <Icon d="M12 2c0 4-4 6-4 10a4 4 0 008 0c0-4-4-6-4-10z" fill="currentColor" {...p}/>,
+      calendar: (p) => <Icon d="M19 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2z M16 2v4 M8 2v4 M3 10h18" {...p}/>,
+      zap: (p) => <Icon d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor" {...p}/>,
+    };
+
+    // ===== VICTORY SOUND + HAPTICS =====
+    function playVictorySound() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.frequency.value = freq;
+          osc.type = 'sine';
+          gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.15);
+          gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + i * 0.15 + 0.05);
+          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + i * 0.15 + 0.4);
+          osc.start(ctx.currentTime + i * 0.15);
+          osc.stop(ctx.currentTime + i * 0.15 + 0.5);
+        });
+        setTimeout(() => ctx.close(), 2000);
+      } catch(e) {}
+    }
+    function playBadgeSound() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [440, 554.37, 659.25].forEach((freq, i) => {
+          const osc = ctx.createOscillator(); const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.frequency.value = freq; osc.type = 'triangle';
+          gain.gain.setValueAtTime(0, ctx.currentTime + i*0.12);
+          gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + i*0.12+0.04);
+          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + i*0.12+0.3);
+          osc.start(ctx.currentTime + i*0.12); osc.stop(ctx.currentTime + i*0.12+0.4);
+        });
+        setTimeout(() => ctx.close(), 1500);
+      } catch(e) {}
+    }
+    function vibrateDevice(pattern) {
+      try { if(navigator.vibrate) navigator.vibrate(pattern); } catch(e) {}
+    }
+
+    // ===== CONFETTI CELEBRATION =====
+    function ConfettiCanvas({active,duration=3000}){
+      const canvasRef=useRef(null),animRef=useRef(null);
+      useEffect(()=>{
+        if(!active)return;
+        const canvas=canvasRef.current;if(!canvas)return;
+        const ctx=canvas.getContext('2d');
+        canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+        const colors=['#4c6ef5','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4'];
+        const particles=Array.from({length:150},()=>({
+          x:Math.random()*canvas.width,y:Math.random()*canvas.height-canvas.height,
+          w:Math.random()*10+5,h:Math.random()*6+3,
+          color:colors[Math.floor(Math.random()*colors.length)],
+          vx:(Math.random()-0.5)*4,vy:Math.random()*3+2,
+          spin:Math.random()*0.2-0.1,angle:Math.random()*Math.PI*2,opacity:1,
+        }));
+        const start=Date.now();
+        function animate(){
+          const elapsed=Date.now()-start;
+          if(elapsed>duration){ctx.clearRect(0,0,canvas.width,canvas.height);return;}
+          ctx.clearRect(0,0,canvas.width,canvas.height);
+          const fade=Math.max(0,(elapsed-duration*0.7)/(duration*0.3));
+          particles.forEach(p=>{
+            p.x+=p.vx;p.y+=p.vy;p.vy+=0.05;p.angle+=p.spin;p.opacity=1-fade;
+            ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.angle);ctx.globalAlpha=p.opacity;
+            ctx.fillStyle=p.color;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore();
+          });
+          animRef.current=requestAnimationFrame(animate);
+        }
+        animate();
+        return()=>{if(animRef.current)cancelAnimationFrame(animRef.current);};
+      },[active,duration]);
+      if(!active)return null;
+      return React.createElement('canvas',{ref:canvasRef,style:{position:'fixed',top:0,left:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:9999}});
+    }
+
+    // ===== ACHIEVEMENTS =====
+    const ACHIEVEMENTS=[
+      {id:'first-words',name:'First Words',icon:'📖',desc:'Complete your first reading',check:(pid,rounds)=>rounds.filter(r=>r.playerId===pid).length>=1},
+      {id:'getting-started',name:'Getting Started',icon:'📚',desc:'Complete 5 readings',check:(pid,rounds)=>rounds.filter(r=>r.playerId===pid).length>=5},
+      {id:'dedicated',name:'Dedicated Reader',icon:'🎯',desc:'Complete 15 readings',check:(pid,rounds)=>rounds.filter(r=>r.playerId===pid).length>=15},
+      {id:'scholar',name:'Torah Scholar',icon:'🧠',desc:'Complete 30 readings',check:(pid,rounds)=>rounds.filter(r=>r.playerId===pid).length>=30},
+      {id:'speed-demon',name:'Speed Demon',icon:'⚡',desc:'Score 45+ on speed',check:(pid,rounds)=>rounds.some(r=>r.playerId===pid&&r.speedScore>=45)},
+      {id:'perfect-accuracy',name:'Perfect Accuracy',icon:'💎',desc:'Score 50/50 on accuracy',check:(pid,rounds)=>rounds.some(r=>r.playerId===pid&&r.accuracyScore>=50)},
+      {id:'century',name:'Century Club',icon:'💯',desc:'Score 100+ in a round',check:(pid,rounds)=>rounds.some(r=>r.playerId===pid&&(r.totalScore||0)>=100)},
+      {id:'streak-3',name:'On Fire',icon:'🔥',desc:'3-week streak',check:(pid,rounds)=>getPlayerStreak(pid,rounds)>=3},
+      {id:'streak-7',name:'Streak Master',icon:'🏆',desc:'7-week streak',check:(pid,rounds)=>getPlayerStreak(pid,rounds)>=7},
+      {id:'rival-3',name:'Rivalry',icon:'⚔️',desc:'Win 3 head-to-head rounds',check:(pid,rounds)=>{let w=0;const my=rounds.filter(r=>r.playerId===pid);my.forEach(rd=>{const o=rounds.find(r=>r.parshaId===rd.parshaId&&r.bookId===rd.bookId&&r.playerId!==pid);if(o&&rd.totalScore>o.totalScore)w++;});return w>=3;}},
+      {id:'comeback',name:'Comeback Kid',icon:'📈',desc:'Beat your own score on a re-read',check:(pid,rounds)=>{const my=rounds.filter(r=>r.playerId===pid);const groups={};my.forEach(r=>{const k=r.parshaId+'_'+r.bookId;if(!groups[k])groups[k]=[];groups[k].push(r.totalScore||0);});return Object.values(groups).some(scores=>scores.length>1&&Math.max(...scores)>scores[0]);}},
+      {id:'full-book',name:'Siyum',icon:'🎉',desc:'Read every parsha in a book',check:(pid,rounds)=>{const my=rounds.filter(r=>r.playerId===pid);return BOOKS.some(b=>{const parshiot=getParshiotForBook(b.id);return parshiot.length>0&&parshiot.every(p=>my.some(r=>r.parshaId===p.id&&r.bookId===b.id));});}},
+      {id:'rival-10',name:'Dominant',icon:'👑',desc:'Win 10 head-to-head rounds',check:(pid,rounds)=>{let w=0;const my=rounds.filter(r=>r.playerId===pid);my.forEach(rd=>{const o=rounds.find(r=>r.parshaId===rd.parshaId&&r.bookId===rd.bookId&&r.playerId!==pid);if(o&&rd.totalScore>o.totalScore)w++;});return w>=10;}},
+      {id:'consistency',name:'Consistent',icon:'📊',desc:'Average 80+ over 10 readings',check:(pid,rounds)=>{const my=rounds.filter(r=>r.playerId===pid);if(my.length<10)return false;const avg=my.reduce((s,r)=>s+(r.totalScore||0),0)/my.length;return avg>=80;}},
+      {id:'double-trouble',name:'Double Trouble',icon:'2️⃣',desc:'Play 2 rounds in one session',check:(pid,rounds)=>{const my=rounds.filter(r=>r.playerId===pid).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));for(let i=1;i<my.length;i++){const diff=(new Date(my[i].createdAt)-new Date(my[i-1].createdAt))/60000;if(diff<30)return true;}return false;}},
+    ];
+    function getUnlockedAchievements(pid,rounds){return ACHIEVEMENTS.filter(a=>a.check(pid,rounds));}
+
+    // ===== BEST-SCORE HELPERS =====
+    function getBestScorePerParsha(playerId, rounds, bookId) {
+      const playerRounds = rounds.filter(r=>r.playerId===playerId&&r.scored&&(bookId?r.bookId===bookId:true));
+      const bestMap = {};
+      playerRounds.forEach(r=>{
+        const key=`${r.parshaId}_${r.bookId}`;
+        if(!bestMap[key]||(r.totalScore||0)>(bestMap[key].totalScore||0)) bestMap[key]=r;
+      });
+      return Object.values(bestMap);
+    }
+    function getPlayerBestTotal(playerId, allRounds, bookId) {
+      return getBestScorePerParsha(playerId, allRounds, bookId).reduce((s,r)=>s+(r.totalScore||0),0);
+    }
+
+    // ===== ONBOARDING WALKTHROUGH =====
+    const ONBOARDING_STEPS = [
+      {
+        icon: '📖',
+        title: 'Welcome to Kriah Competition!',
+        body: 'A Hebrew reading challenge where competitors go head-to-head, reading from the Torah and getting scored on speed and accuracy.',
+        detail: 'Perfect for families, classrooms, or anyone who wants to sharpen their kriah skills while having fun.',
+      },
+      {
+        icon: '📜',
+        title: 'Pick a Parsha',
+        body: 'Choose any parsha from the five books of the Torah. You\'ll see the Rishon (first aliyah) displayed in Hebrew so the reader can follow along.',
+        detail: 'The app also highlights this week\'s parsha on the home screen so you can jump straight in.',
+      },
+      {
+        icon: '🎙️',
+        title: 'Record the Reading',
+        body: 'Each competitor takes a turn reading the Hebrew text aloud. You can record live using the microphone or upload an audio file.',
+        detail: 'Tap "Show Text" during recording if the reader needs to see the passage while reading.',
+      },
+      {
+        icon: '⚖️',
+        title: 'A Judge Scores Each Reading',
+        body: 'A judge (parent, teacher, or the other competitor) listens to each recording and rates three things:',
+        bullets: ['Pronunciation (0-20) - Are the words read correctly?', 'Fluency (0-15) - Is the reading smooth and natural?', 'Confidence (0-15) - Is the reading clear and assured?'],
+        detail: 'Speed is calculated automatically based on how long the reading takes. Total score = Speed (up to 50) + Accuracy (up to 50) + Bonuses.',
+      },
+      {
+        icon: '🏆',
+        title: 'Compete & Level Up',
+        body: 'After both competitors are scored, you\'ll see who won the round. Points accumulate across sessions.',
+        bullets: ['Climb the ranks: Talmid, Chaver, Baki, Rav, Gaon', 'Build a weekly streak by playing regularly', 'Track everything on the Leaderboard'],
+        detail: 'You can always re-read a parsha to try and beat your previous score.',
+      },
+    ];
+
+    function OnboardingWalkthrough({ onComplete }) {
+      const [step, setStep] = useState(0);
+      const total = ONBOARDING_STEPS.length;
+      const current = ONBOARDING_STEPS[step];
+      const isLast = step === total - 1;
+
+      const handleNext = () => {
+        if (isLast) {
+          markOnboardingSeen();
+          onComplete();
+        } else {
+          setStep(step + 1);
+        }
+      };
+
+      const handleSkip = () => {
+        markOnboardingSeen();
+        onComplete();
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" style={{backdropFilter:'blur(4px)'}}>
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden slide-up">
+            {/* Progress bar */}
+            <div className="flex gap-1.5 px-6 pt-6">
+              {ONBOARDING_STEPS.map((_, i) => (
+                <div key={i} className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${i <= step ? 'bg-indigo-500' : 'bg-slate-200'}`} />
+              ))}
+            </div>
+
+            {/* Content */}
+            <div className="px-6 pt-6 pb-2 text-center" key={step}>
+              <div className="text-5xl mb-4 slide-up">{current.icon}</div>
+              <h2 className="text-xl font-bold text-slate-800 mb-3 slide-up">{current.title}</h2>
+              <p className="text-slate-600 text-sm leading-relaxed mb-3">{current.body}</p>
+              {current.bullets && (
+                <div className="text-left bg-slate-50 rounded-xl p-4 mb-3 space-y-2">
+                  {current.bullets.map((b, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-slate-600">
+                      <span className="text-indigo-500 mt-0.5 font-bold">*</span>
+                      <span>{b}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-slate-400 leading-relaxed">{current.detail}</p>
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 pb-6 pt-4 flex items-center justify-between gap-3">
+              <button onClick={handleSkip} className="text-sm text-slate-400 hover:text-slate-600 transition-colors px-3 py-2">
+                Skip guide
+              </button>
+              <div className="flex items-center gap-3">
+                {step > 0 && (
+                  <button onClick={() => setStep(step - 1)} className="px-4 py-2.5 text-sm font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">
+                    Back
+                  </button>
+                )}
+                <button onClick={handleNext} className="px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-md transition-colors flex items-center gap-2">
+                  {isLast ? "Let's Go!" : 'Next'}
+                  {!isLast && Icons.chevronRight({size:16})}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== NAVIGATION =====
+    function useRouter() {
+      const [route, setRoute] = useState(window.location.hash || '#/');
+      useEffect(() => {
+        const handler = () => setRoute(window.location.hash || '#/');
+        window.addEventListener('hashchange', handler);
+        return () => window.removeEventListener('hashchange', handler);
+      }, []);
+      const navigate = (path) => { window.location.hash = path; };
+      return { route, navigate };
+    }
+
+    function parseRoute(route) {
+      const hash = route.replace('#','');
+      if(hash === '/' || hash === '') return { page:'dashboard' };
+      if(hash === '/setup') return { page:'setup' };
+      if(hash === '/leaderboard') return { page:'leaderboard' };
+      const seasonMatch = hash.match(/^\/season\/(.+)$/);
+      if(seasonMatch) return { page:'season', bookId:seasonMatch[1] };
+      const roundMatch = hash.match(/^\/round\/(.+?)\/(.+)$/);
+      if(roundMatch) return { page:'round', bookId:roundMatch[1], parshaId:roundMatch[2] };
+      return { page:'dashboard' };
+    }
+
+    // ===== PLAYER PICKER (Login) =====
+    function PlayerPicker({ players, onSelect }) {
+      return (
+        <div className="fixed inset-0 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm space-y-6 slide-up">
+            <div className="text-center text-white">
+              <div className="text-5xl mb-4">📖</div>
+              <h1 className="text-2xl font-bold">Kriah Competition</h1>
+              <p className="text-indigo-200 mt-2">Who's reading today?</p>
+            </div>
+            <div className="space-y-3">
+              {players.map((player, idx) => {
+                const colors = getPlayerColor(idx);
+                const allRounds = getRounds().filter(r=>r.scored);
+                const totalPts = getPlayerBestTotal(player.id, allRounds);
+                const rank = getRank(totalPts);
+                return (
+                  <button key={player.id} onClick={() => onSelect(player.id)} className="w-full bg-white/10 backdrop-blur-sm border-2 border-white/20 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/20 hover:border-white/40 transition-all active:scale-[0.98]">
+                    <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-xl font-bold shadow-lg`}>{player.name.charAt(0).toUpperCase()}</div>
+                    <div className="flex-1 text-left">
+                      <h3 className="text-white font-bold text-lg">{player.name}</h3>
+                      <div className="flex items-center gap-2 text-indigo-200 text-sm">
+                        <span>{rank.icon} {rank.name}</span>
+                        <span className="text-indigo-300/50">|</span>
+                        <span>{totalPts} pts</span>
+                      </div>
+                    </div>
+                    {Icons.chevronRight({size:20,className:'text-white/50'})}
+                  </button>
+                );
+              })}
+            </div>
+            <a href="#/setup" className="block text-center text-indigo-200 text-sm hover:text-white transition-colors py-2">
+              Manage players...
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== MAIN APP =====
+    function App() {
+      const { route, navigate } = useRouter();
+      const { page, bookId, parshaId } = parseRoute(route);
+      const [activePlayer, setActivePlayerState] = useState(getActivePlayer());
+      const [showPicker, setShowPicker] = useState(false);
+      const players = getPlayers();
+
+      // If players exist but no one is logged in, show picker
+      const needsLogin = players.length > 0 && !activePlayer;
+
+      const handleLogin = (playerId) => {
+        setActivePlayerId(playerId);
+        const p = getPlayers().find(pl=>pl.id===playerId);
+        setActivePlayerState(p);
+        setShowPicker(false);
+      };
+
+      const handleSwitch = () => {
+        setShowPicker(true);
+      };
+
+      const handleLogout = () => {
+        clearActivePlayer();
+        setActivePlayerState(null);
+      };
+
+      // Refresh active player when navigating (in case players changed)
+      useEffect(() => {
+        const p = getActivePlayer();
+        setActivePlayerState(p);
+      }, [route]);
+
+      const activeIdx = activePlayer ? players.findIndex(p=>p.id===activePlayer.id) : 0;
+      const activeColors = getPlayerColor(activeIdx >= 0 ? activeIdx : 0);
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Login overlay */}
+          {(needsLogin || showPicker) && players.length > 0 && (
+            <PlayerPicker players={players} onSelect={handleLogin} />
+          )}
+
+          <header className="bg-gradient-to-r from-indigo-700 via-indigo-600 to-indigo-700 text-white shadow-lg safe-area-top">
+            <div className="max-w-2xl mx-auto px-4 py-3 sm:py-4 flex items-center gap-3">
+              <a href="#/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity cursor-pointer flex-1 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                  {Icons.book({size:20})}
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-lg sm:text-xl font-bold tracking-tight">Kriah Competition</h1>
+                  <p className="text-indigo-200 text-[10px] sm:text-xs font-medium truncate">Hebrew Reading Challenge</p>
+                </div>
+              </a>
+              {activePlayer && (
+                <button onClick={handleSwitch} className="flex items-center gap-2 bg-white/15 hover:bg-white/25 rounded-xl px-3 py-2 transition-all flex-shrink-0">
+                  <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${activeColors.grad} flex items-center justify-center text-white text-xs font-bold`}>{activePlayer.name.charAt(0).toUpperCase()}</div>
+                  <span className="text-sm font-medium text-white hidden sm:inline">{activePlayer.name}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/60"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              )}
+            </div>
+          </header>
+
+          <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6">
+            {page==='dashboard' && <Dashboard navigate={navigate} activePlayer={activePlayer}/>}
+            {page==='setup' && <PlayerSetup navigate={navigate} onPlayerChange={()=>setActivePlayerState(getActivePlayer())}/>}
+            {page==='season' && <SeasonView bookId={bookId} navigate={navigate} activePlayer={activePlayer}/>}
+            {page==='round' && <CompetitionRound bookId={bookId} parshaId={parshaId} navigate={navigate} activePlayer={activePlayer}/>}
+            {page==='leaderboard' && <Leaderboard navigate={navigate} activePlayer={activePlayer}/>}
+          </main>
+
+          <nav className="bg-white border-t border-slate-200 shadow-lg sticky bottom-0" style={{paddingBottom:'env(safe-area-inset-bottom, 0px)'}}>
+            <div className="max-w-2xl mx-auto px-4">
+              <div className="flex justify-around">
+                {[
+                  {path:'#/',icon:Icons.home,label:'Home'},
+                  {path:'#/leaderboard',icon:Icons.trophy,label:'Leaderboard'},
+                  {path:'#/setup',icon:Icons.users,label:'Players'},
+                ].map(({path,icon,label}) => {
+                  const isActive = route===path || (path==='#/' && (route==='' || route==='#/'));
+                  return (
+                    <a key={path} href={path} className={`flex flex-col items-center gap-1 py-3 px-4 text-xs font-medium transition-colors ${isActive?'text-indigo-600':'text-slate-400 hover:text-slate-600'}`}>
+                      {icon({size:20})}
+                      <span>{label}</span>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          </nav>
+        </div>
+      );
+    }
+
+    // ===== DASHBOARD =====
+    function Dashboard({navigate, activePlayer}) {
+      const [players, setPlayers] = useState([]);
+      const [currentSeason, setSeason] = useState(null);
+      const [thisWeek, setThisWeek] = useState(null);
+      const [loadingWeek, setLoadingWeek] = useState(true);
+      const [showOnboarding, setShowOnboarding] = useState(false);
+
+      useEffect(() => {
+        const p = getPlayers();
+        setPlayers(p);
+        setSeason(getCurrentSeason());
+        fetchThisWeeksParsha().then(data => { setThisWeek(data); setLoadingWeek(false); }).catch(() => setLoadingWeek(false));
+        if (!hasSeenOnboarding()) setShowOnboarding(true);
+      }, []);
+
+      if(players.length===0) {
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 slide-up">
+            {showOnboarding && <OnboardingWalkthrough onComplete={() => setShowOnboarding(false)} />}
+            <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center">{Icons.book({size:40,className:'text-indigo-600'})}</div>
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-slate-800 mb-2">Welcome to Kriah Competition!</h2>
+              <p className="text-slate-500 max-w-md">A Hebrew reading challenge for competitors. Set up your players to get started.</p>
+            </div>
+            <a href="#/setup" className="inline-flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md text-lg">Set Up Players {Icons.chevronRight({size:20})}</a>
+          </div>
+        );
+      }
+
+      const currentBook = BOOKS.find(b=>b.id===currentSeason?.bookId) || BOOKS[0];
+      const allRounds = getRounds().filter(r=>r.scored);
+
+      // Active player stats
+      const me = activePlayer;
+      const meIdx = me ? players.findIndex(p=>p.id===me.id) : -1;
+      const meColors = meIdx >= 0 ? getPlayerColor(meIdx) : getPlayerColor(0);
+      const meRounds = me ? allRounds.filter(r=>r.playerId===me.id) : [];
+      const meTotalPts = me ? getPlayerBestTotal(me.id, allRounds) : 0;
+      const meRank = getRank(meTotalPts);
+      const meNextRank = getNextRank(meTotalPts);
+      const meStreak = me ? getPlayerStreak(me.id, allRounds) : 0;
+      const meAchievements = me ? getUnlockedAchievements(me.id, allRounds) : [];
+
+      // This week's parsha info
+      const thisWeekParsha = thisWeek?.ids?.length > 0 ? getParsha(thisWeek.ids[0]) : null;
+      const thisWeekBook = thisWeekParsha ? getBook(thisWeekParsha.book) : null;
+
+      // Head-to-head records
+      const h2h = getHeadToHead(players, allRounds);
+
+      return (
+        <div className="space-y-6 slide-up">
+          {showOnboarding && <OnboardingWalkthrough onComplete={() => setShowOnboarding(false)} />}
+
+          {/* Your Stats Card (when logged in) */}
+          {me && (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-5">
+              <div className="flex items-center gap-4">
+                <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${meColors.grad} flex items-center justify-center text-white text-2xl font-bold shadow-lg`}>{me.name.charAt(0).toUpperCase()}</div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-xl font-bold text-slate-800 truncate">{me.name}</h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-lg">{meRank.icon}</span>
+                    <span className="text-sm font-medium text-indigo-600">{meRank.name}</span>
+                    {meStreak > 0 && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 rounded-full text-xs font-semibold text-orange-600">{Icons.flame({size:10,className:'text-orange-500'})} {meStreak}w</span>}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-indigo-600">{meTotalPts}</p>
+                  <p className="text-[10px] text-slate-400">career pts</p>
+                </div>
+              </div>
+              {meNextRank && (
+                <div className="mt-3 pt-3 border-t border-slate-100">
+                  <div className="flex justify-between text-xs text-slate-400 mb-1"><span>{meRank.icon} {meRank.name}</span><span>{meNextRank.nextRank.icon} {meNextRank.nextRank.name} ({meNextRank.pointsNeeded} to go)</span></div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-full transition-all" style={{width:`${Math.min(100,meNextRank.progress*100)}%`}}/></div>
+                </div>
+              )}
+              <div className="mt-3 flex items-center gap-3 text-xs text-slate-400">
+                <span>{meRounds.length} round{meRounds.length!==1?'s':''}</span>
+                <span>{meAchievements.length}/{ACHIEVEMENTS.length} badges</span>
+              </div>
+            </div>
+          )}
+
+          {/* This Week's Parsha Card */}
+          {loadingWeek ? (
+            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl shadow-md border border-indigo-100 p-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl shimmer"></div>
+                <div className="flex-1 space-y-2"><div className="h-4 w-32 shimmer rounded"></div><div className="h-3 w-24 shimmer rounded"></div></div>
+              </div>
+            </div>
+          ) : thisWeekParsha && thisWeekBook ? (
+            <a href={`#/round/${thisWeekParsha.book}/${thisWeekParsha.id}`} className="block bg-gradient-to-br from-indigo-500 via-indigo-600 to-purple-700 rounded-2xl shadow-lg p-6 text-white hover:shadow-xl transition-all hover:scale-[1.01] cursor-pointer">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                  {Icons.calendar({size:28})}
+                </div>
+                <div className="flex-1">
+                  <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wider">This Week's Parsha</p>
+                  <h2 className="text-2xl font-bold flex items-center gap-2 mt-0.5">
+                    {thisWeekParsha.name}
+                    <span className="text-lg font-normal text-indigo-200 font-hebrew">{thisWeekParsha.hebrewName}</span>
+                  </h2>
+                  <p className="text-indigo-200 text-sm mt-0.5">{thisWeekBook.name} / {thisWeekBook.englishName}</p>
+                </div>
+                <div className="text-white/70">{Icons.chevronRight({size:24})}</div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-white/20 flex items-center justify-between">
+                <span className="text-sm text-indigo-200">{me ? 'Tap to read' : 'Tap to start competing'}</span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-sm font-medium">{Icons.play({size:14})} Play Now</span>
+              </div>
+            </a>
+          ) : null}
+
+          {/* Player Cards */}
+          <div className={`grid gap-4 ${players.length <= 2 ? 'grid-cols-2' : players.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+            {players.map((player, idx) => {
+              const pRounds = allRounds.filter(r=>r.playerId===player.id);
+              const totalPts = getPlayerBestTotal(player.id, allRounds);
+              const rank = getRank(totalPts);
+              const streak = getPlayerStreak(player.id, allRounds);
+              const colors = getPlayerColor(idx);
+              return (
+                <div key={player.id} className="bg-white rounded-2xl shadow-md border border-slate-100 p-5 text-center">
+                  <div className="text-3xl mb-2">{rank.icon}</div>
+                  <h3 className="font-bold text-lg text-slate-800">{player.name}</h3>
+                  <p className="text-sm text-indigo-600 font-medium">{rank.name}</p>
+                  <div className="mt-3 flex items-center justify-center gap-1">
+                    {Icons.star({size:16,className:'text-amber-400'})}
+                    <span className="font-bold text-slate-700">{totalPts}</span>
+                    <span className="text-xs text-slate-400">pts</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">{pRounds.length} round{pRounds.length!==1?'s':''}</p>
+                  {streak > 0 && (
+                    <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 rounded-full">
+                      {Icons.flame({size:12,className:'text-orange-500'})}
+                      <span className="text-xs font-semibold text-orange-600">{streak} week{streak!==1?'s':''}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Streak At Risk Warning */}
+          {(() => {
+            const atRisk = players.filter(p => isStreakAtRisk(p.id, allRounds));
+            if (atRisk.length === 0) return null;
+            return (
+              <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-2xl border-2 border-orange-300 p-4 streak-shake">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    {Icons.flame({size:22,className:'text-orange-500'})}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-orange-800">Streak at risk!</p>
+                    <p className="text-xs text-orange-600">
+                      {atRisk.map(p => p.name).join(' & ')} {atRisk.length === 1 ? 'hasn\'t' : 'haven\'t'} played this week.
+                      Play now to keep the streak alive!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Head-to-Head */}
+          {h2h && players.length >= 2 && (() => {
+            const entries = Object.values(h2h).filter(r => r.wins1 + r.wins2 + r.draws > 0);
+            if (entries.length === 0) return null;
+            return (
+              <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">{Icons.zap({size:14,className:'text-amber-500'})} Head to Head</h3>
+                <div className="space-y-3">
+                  {entries.map(record => {
+                    const p1 = players.find(p => p.id === record.p1Id);
+                    const p2 = players.find(p => p.id === record.p2Id);
+                    if (!p1 || !p2) return null;
+                    const total = record.wins1 + record.wins2 + record.draws;
+                    return (
+                      <div key={record.p1Id + record.p2Id} className="flex items-center gap-3 text-sm">
+                        <span className={`font-semibold ${record.wins1 > record.wins2 ? 'text-indigo-600' : 'text-slate-600'}`}>{p1.name}</span>
+                        <div className="flex-1 flex items-center justify-center gap-2">
+                          <span className={`text-lg font-bold ${record.wins1 > record.wins2 ? 'text-indigo-600' : 'text-slate-700'}`}>{record.wins1}</span>
+                          <span className="text-slate-300">-</span>
+                          {record.draws > 0 && <><span className="text-slate-400 font-medium">{record.draws}</span><span className="text-slate-300">-</span></>}
+                          <span className={`text-lg font-bold ${record.wins2 > record.wins1 ? 'text-indigo-600' : 'text-slate-700'}`}>{record.wins2}</span>
+                        </div>
+                        <span className={`font-semibold ${record.wins2 > record.wins1 ? 'text-indigo-600' : 'text-slate-600'}`}>{p2.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Current Season */}
+          <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">Current Season</p>
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">{currentBook.icon} {currentBook.name} <span className="text-sm font-normal text-slate-400">/ {currentBook.englishName}</span></h2>
+              </div>
+              <a href={`#/season/${currentBook.id}`} className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 text-sm shadow-md">Play {Icons.chevronRight({size:16})}</a>
+            </div>
+            <div className={`grid gap-3 ${players.length <= 3 ? 'grid-cols-' + Math.min(players.length, 3) : 'grid-cols-3'}`}>
+              {players.map(player => {
+                const seasonPts = getPlayerBestTotal(player.id, allRounds, currentBook.id);
+                return (
+                  <div key={player.id} className="bg-slate-50 rounded-xl px-4 py-3">
+                    <p className="text-sm font-medium text-slate-600 truncate">{player.name}</p>
+                    <p className="text-2xl font-bold text-indigo-600">{seasonPts}</p>
+                    <p className="text-xs text-slate-400">season points</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Recent Activity */}
+          {(() => {
+            const recentRounds = allRounds.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,5);
+            if(recentRounds.length===0) return null;
+            return (
+              <div>
+                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Recent Activity</h3>
+                <div className="bg-white rounded-2xl shadow-md border border-slate-100 divide-y divide-slate-50">
+                  {recentRounds.map(rd => {
+                    const p = getParsha(rd.parshaId);
+                    const player = players.find(pl=>pl.id===rd.playerId);
+                    const timeAgo = (()=>{const diff=Date.now()-new Date(rd.createdAt).getTime();const mins=Math.floor(diff/60000);if(mins<60)return`${mins}m ago`;const hrs=Math.floor(mins/60);if(hrs<24)return`${hrs}h ago`;const days=Math.floor(hrs/24);return`${days}d ago`;})();
+                    return (
+                      <div key={rd.id} className="px-4 py-3 flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br ${player?getPlayerColor(players.indexOf(player)).grad:'from-slate-400 to-slate-500'}`}>{player?.name?.charAt(0)||'?'}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-700"><strong>{player?.name||'Unknown'}</strong> read <strong>{p?.name||rd.parshaId}</strong></p>
+                          <p className="text-xs text-slate-400">{timeAgo}</p>
+                        </div>
+                        <div className="text-right"><p className="text-sm font-bold text-indigo-600">{rd.totalScore}</p><p className="text-[10px] text-slate-400">pts</p></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* All Seasons */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">All Seasons</h3>
+            <div className="space-y-2">
+              {BOOKS.map(book => {
+                const bookRounds = allRounds.filter(r=>r.bookId===book.id);
+                const isActive = book.id===currentBook.id;
+                return (
+                  <a key={book.id} href={`#/season/${book.id}`} className={`bg-white rounded-2xl shadow-md border border-slate-100 p-4 flex items-center gap-4 hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer ${isActive?'ring-2 ring-indigo-300':''}`}>
+                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${book.color} flex items-center justify-center text-2xl shadow-sm`}>{book.icon}</div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-slate-800">{book.name}</h4>
+                        <span className="text-sm text-slate-400">{book.hebrewName}</span>
+                        {isActive && <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">Active</span>}
+                      </div>
+                      <p className="text-xs text-slate-400">{bookRounds.length} rounds completed</p>
+                    </div>
+                    {Icons.chevronRight({size:20,className:'text-slate-300'})}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== PLAYER SETUP =====
+    function PlayerSetup({navigate, onPlayerChange}) {
+      const [players, setPlayersState] = useState([]);
+      const [newName, setNewName] = useState('');
+      const [editingId, setEditingId] = useState(null);
+      const [editName, setEditName] = useState('');
+      const [showReset, setShowReset] = useState(false);
+      const [importMsg, setImportMsg] = useState(null);
+      const fileInputRef = useRef(null);
+      useEffect(()=>{ setPlayersState(getPlayers()); },[]);
+
+      const MAX_PLAYERS = 6;
+      const handleAdd = () => { if(!newName.trim()||players.length>=MAX_PLAYERS) return; const p=createPlayer(newName.trim()); setPlayersState([...players,p]); setNewName(''); if(onPlayerChange) onPlayerChange(); };
+      const handleRemove = (id) => { const u=players.filter(p=>p.id!==id); savePlayers(u); setPlayersState(u); if(id===getActivePlayerId()) clearActivePlayer(); if(onPlayerChange) onPlayerChange(); };
+      const handleEdit = (id) => { const p=players.find(p=>p.id===id); if(p){setEditingId(id);setEditName(p.name);} };
+      const handleSaveEdit = () => { if(!editName.trim()) return; const u=players.map(p=>p.id===editingId?{...p,name:editName.trim()}:p); savePlayers(u); setPlayersState(u); setEditingId(null); };
+      const handleReset = () => { resetAllData(); setPlayersState([]); setShowReset(false); if(onPlayerChange) onPlayerChange(); };
+
+      const handleImportFile = (e) => {
+        const f = e.target.files?.[0]; if(!f) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const result = importAllData(ev.target.result);
+          if (result.success) {
+            setPlayersState(getPlayers());
+            setImportMsg({ ok:true, text:`Imported ${result.playerCount} players and ${result.roundCount} rounds.` });
+          } else {
+            setImportMsg({ ok:false, text:`Import failed: ${result.error}` });
+          }
+          setTimeout(() => setImportMsg(null), 4000);
+        };
+        reader.readAsText(f);
+        e.target.value = '';
+      };
+
+      return (
+        <div className="space-y-6 slide-up">
+          <div className="flex items-center gap-3">
+            <button onClick={()=>navigate('#/')} className="p-2 hover:bg-slate-100 rounded-xl">{Icons.arrowLeft({size:20,className:'text-slate-400'})}</button>
+            <div><h2 className="text-xl font-bold text-slate-800">Player Setup</h2><p className="text-sm text-slate-400">Add up to {MAX_PLAYERS} competitors</p></div>
+          </div>
+          <div className="space-y-3">
+            {players.map((player,i) => (
+              <div key={player.id} className="bg-white rounded-2xl shadow-md border border-slate-100 p-4 flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white bg-gradient-to-br ${getPlayerColor(i).grad}`}>{player.name.charAt(0).toUpperCase()}</div>
+                {editingId===player.id ? (
+                  <div className="flex-1 flex gap-2">
+                    <input type="text" value={editName} onChange={e=>setEditName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSaveEdit()} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300" autoFocus/>
+                    <button onClick={handleSaveEdit} className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100">{Icons.check({size:20})}</button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1"><h3 className="font-semibold text-slate-800">{player.name}</h3><p className="text-xs text-slate-400">Player {i+1}</p></div>
+                    <button onClick={()=>handleEdit(player.id)} className="px-3 py-1 text-sm text-slate-400 hover:text-slate-600 rounded-lg">Edit</button>
+                    <button onClick={()=>handleRemove(player.id)} className="p-2 text-red-400 hover:text-red-600 rounded-lg">{Icons.trash({size:16})}</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          {players.length<MAX_PLAYERS && (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+              <h3 className="text-sm font-semibold text-slate-500 mb-3">Add Player {players.length+1}</h3>
+              <div className="flex gap-2">
+                <input type="text" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleAdd()} placeholder="Enter player name..." className="flex-1 px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300 text-lg" autoFocus/>
+                <button onClick={handleAdd} disabled={!newName.trim()} className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md disabled:opacity-50">{Icons.userPlus({size:20})} Add</button>
+              </div>
+            </div>
+          )}
+          {players.length>=2 && (
+            <button onClick={()=>navigate('#/')} className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 bg-emerald-500 text-white font-semibold rounded-xl hover:bg-emerald-600 shadow-md text-lg">{Icons.check({size:20})} Ready to Play!</button>
+          )}
+
+          {/* Data Export / Import */}
+          <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Backup & Restore</h3>
+            <p className="text-xs text-slate-400 mb-4">Export your data to save a backup, or import a previous backup to restore.</p>
+            {importMsg && (
+              <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${importMsg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{importMsg.text}</div>
+            )}
+            <div className="flex gap-3">
+              <button onClick={exportAllData} className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 text-indigo-700 font-semibold rounded-xl hover:bg-indigo-100 text-sm">
+                {Icons.download({size:16})} Export Data
+              </button>
+              <button onClick={() => fileInputRef.current?.click()} className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-50 text-slate-700 font-semibold rounded-xl hover:bg-slate-100 text-sm">
+                {Icons.upload({size:16})} Import Backup
+              </button>
+              <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleImportFile} className="hidden"/>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100">
+            {showReset ? (
+              <div className="bg-red-50 rounded-2xl border border-red-200 p-4">
+                <p className="text-sm text-red-700 mb-3 font-medium">This will delete all players, scores, and recordings. Are you sure?</p>
+                <div className="flex gap-2">
+                  <button onClick={handleReset} className="px-4 py-2 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 text-sm">Yes, Reset</button>
+                  <button onClick={()=>setShowReset(false)} className="px-4 py-2 bg-white border-2 border-slate-200 text-slate-600 font-semibold rounded-xl text-sm">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={()=>setShowReset(true)} className="text-sm text-slate-400 hover:text-red-500 transition-colors">Reset all data...</button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ===== SEASON VIEW (with per-parsha scores) =====
+    function SeasonView({bookId, navigate, activePlayer}) {
+      const [players, setPlayersState] = useState([]);
+      const [rounds, setRoundsState] = useState([]);
+      const book = getBook(bookId);
+      const parshiot = getParshiotForBook(bookId);
+
+      useEffect(() => { setPlayersState(getPlayers()); setRoundsState(getRounds().filter(r=>r.scored)); setCurrentSeason(bookId); }, [bookId]);
+
+      if(!book) return <div className="text-center py-12 text-slate-500">Season not found</div>;
+
+      const getParshaStatus = (pid) => {
+        const pr = rounds.filter(r=>r.parshaId===pid);
+        const pids = [...new Set(pr.map(r=>r.playerId))];
+        if(pids.length>=2) return 'completed';
+        if(pids.length>0) return 'in-progress';
+        return 'pending';
+      };
+
+      const getParshaScores = (pid) => {
+        return rounds.filter(r => r.parshaId === pid && r.bookId === bookId);
+      };
+
+      const playerStats = players.map(p => {
+        const sr = rounds.filter(r=>r.playerId===p.id && r.bookId===bookId);
+        const pts = getPlayerBestTotal(p.id, rounds, bookId);
+        const bestRounds = getBestScorePerParsha(p.id, rounds, bookId);
+        return { player:p, totalPoints:pts, roundsPlayed:sr.length, bestParshiot:bestRounds.length, avgScore:bestRounds.length>0?Math.round(pts/bestRounds.length):0 };
+      }).sort((a,b)=>b.totalPoints-a.totalPoints);
+
+      return (
+        <div className="space-y-6 slide-up">
+          <div className="flex items-center gap-3">
+            <button onClick={()=>navigate('#/')} className="p-2 hover:bg-slate-100 rounded-xl">{Icons.arrowLeft({size:20,className:'text-slate-400'})}</button>
+            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${book.color} flex items-center justify-center text-2xl shadow-sm`}>{book.icon}</div>
+            <div><h2 className="text-xl font-bold text-slate-800">{book.name}</h2><p className="text-sm text-slate-400">{book.hebrewName} / {book.englishName}</p></div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Season Standings</h3>
+            <div className={`grid gap-4 ${playerStats.length <= 3 ? 'grid-cols-' + Math.min(playerStats.length, 3) : 'grid-cols-3'}`}>
+              {playerStats.map(({player,totalPoints,roundsPlayed,avgScore},idx) => (
+                <div key={player.id} className={`rounded-xl p-4 text-center ${idx===0 && totalPoints>0?'bg-gradient-to-b from-amber-50 to-amber-100 border-2 border-amber-200':'bg-slate-50'}`}>
+                  {idx===0 && totalPoints>0 && <div className="text-amber-500 mb-1">{Icons.trophy({size:20,className:'mx-auto'})}</div>}
+                  <p className="font-semibold text-slate-700 truncate">{player.name}</p>
+                  <p className="text-3xl font-bold text-indigo-600 mt-1">{totalPoints}</p>
+                  <p className="text-xs text-slate-400 mt-1">{roundsPlayed} round{roundsPlayed!==1?'s':''} | avg {avgScore}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Parshiot ({parshiot.length})</h3>
+            <div className="space-y-2">
+              {parshiot.map(parsha => {
+                const status = getParshaStatus(parsha.id);
+                const scores = getParshaScores(parsha.id);
+                return (
+                  <a key={parsha.id} href={`#/round/${bookId}/${parsha.id}`} className="block bg-white rounded-2xl shadow-md border border-slate-100 p-4 hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${status==='completed'?'bg-emerald-100 text-emerald-600':status==='in-progress'?'bg-amber-100 text-amber-600':'bg-slate-100 text-slate-400'}`}>
+                        {status==='completed' ? Icons.check({size:20}) : parsha.order}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold text-slate-800">{parsha.name}</h4>
+                          <span className="text-sm text-slate-400 font-hebrew">{parsha.hebrewName}</span>
+                        </div>
+                        <p className="text-xs text-slate-400">{status==='completed'?'Completed':status==='in-progress'?'In progress...':parsha.rishonRef}</p>
+                      </div>
+                      {status==='completed' && Icons.star({size:16,className:'text-amber-400'})}
+                      {Icons.chevronRight({size:20,className:'text-slate-300'})}
+                    </div>
+                    {/* Show per-player scores for this parsha */}
+                    {scores.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-50 flex flex-wrap gap-3">
+                        {scores.map(r => {
+                          const p = players.find(pl => pl.id === r.playerId);
+                          return p ? (
+                            <div key={r.id} className="flex items-center gap-2 text-xs">
+                              <span className="font-medium text-slate-600">{p.name}</span>
+                              <span className="font-bold text-indigo-600">{r.totalScore}</span>
+                              <span className="text-slate-300">(S:{r.speedScore} A:{r.accuracyScore})</span>
+                            </div>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== COMPETITION ROUND =====
+    function CompetitionRound({bookId, parshaId, navigate, activePlayer}) {
+      const [allPlayers, setAllPlayers] = useState([]);
+      const [mode, setMode] = useState(null); // null=choosing, 'solo', 'h2h'
+      const [selectedPlayers, setSelectedPlayers] = useState([]);
+      const [step, setStep] = useState('loading'); // loading, choose_mode, record_solo, score_solo, results_solo, select_players, record_p1, score_p1, record_p2, score_p2, results
+      const [parshaText, setParshaText] = useState(null);
+      const [error, setError] = useState(null);
+      const [roundData, setRoundData] = useState({ p1:{}, p2:{}, solo:{} });
+
+      const parsha = getParsha(parshaId);
+      const book = getBook(bookId);
+
+      // Navigation guard
+      useEffect(() => {
+        const guardSteps = ['record_solo','score_solo','record_p1','score_p1','record_p2','score_p2'];
+        if (guardSteps.includes(step)) {
+          const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+          window.addEventListener('beforeunload', handler);
+          return () => window.removeEventListener('beforeunload', handler);
+        }
+      }, [step]);
+
+      useEffect(() => {
+        const p = getPlayers();
+        setAllPlayers(p);
+        if(p.length < 1) { navigate('#/setup'); return; }
+        if(activePlayer) {
+          setMode('solo');
+          setStep('loading');
+          loadText(false, 'solo');
+        } else if(p.length === 2) {
+          setMode('h2h');
+          setSelectedPlayers(p);
+          loadText(false, 'h2h');
+        } else {
+          loadText(true); // preload in background
+          setStep('choose_mode');
+        }
+      }, [parshaId]);
+
+      function loadText(backgroundOnly = false, targetMode = mode) {
+        if(parsha) {
+          fetchParshaText(parsha.rishonRef)
+            .then(data => {
+              setParshaText(data);
+              if (!backgroundOnly) {
+                if(targetMode==='solo') setStep('record_solo');
+                else setStep('record_p1');
+              }
+            })
+            .catch(err => {
+              console.error(err); setError('Could not load parsha text. Check internet connection.');
+              if (!backgroundOnly) {
+                if(targetMode==='solo') setStep('record_solo');
+                else setStep('record_p1');
+              }
+            });
+        }
+      }
+
+      const startSolo = () => {
+        setMode('solo');
+        if(parshaText) setStep('record_solo');
+        else { setStep('loading'); loadText(false, 'solo'); }
+      };
+
+      const startH2H = () => {
+        setMode('h2h');
+        const p = allPlayers;
+        if(p.length === 2) { setSelectedPlayers(p); if(parshaText) setStep('record_p1'); else { setStep('loading'); loadText(false, 'h2h'); } }
+        else setStep('select_players');
+      };
+
+      if(!parsha||!book) return <div className="text-center py-12 text-slate-500">Parsha not found</div>;
+
+      const p1 = mode==='h2h' ? selectedPlayers[0] : null;
+      const p2 = mode==='h2h' ? selectedPlayers[1] : null;
+
+      // Step progress
+      const isSolo = mode==='solo';
+      const stepLabels = isSolo
+        ? ['Read', 'Score', 'Results']
+        : step==='select_players' ? ['Select Players']
+        : [p1?.name||'P1', 'Score', p2?.name||'P2', 'Score', 'Results'];
+      const stepKeys = isSolo
+        ? ['record_solo','score_solo','results_solo']
+        : step==='select_players' ? ['select_players']
+        : ['record_p1','score_p1','record_p2','score_p2','results'];
+      const currentIdx = stepKeys.indexOf(step);
+
+      // H2H player selection
+      const togglePlayer = (player) => {
+        setSelectedPlayers(prev => {
+          const exists = prev.find(p => p.id === player.id);
+          if (exists) return prev.filter(p => p.id !== player.id);
+          if (prev.length >= 2) return [prev[1], player];
+          return [...prev, player];
+        });
+      };
+      const confirmSelection = () => {
+        if (selectedPlayers.length === 2) {
+          if (parshaText) setStep('record_p1');
+          else { setStep('loading'); loadText(); }
+        }
+      };
+
+      const prevScores = getRounds().filter(r => r.scored && r.parshaId === parshaId && r.bookId === bookId);
+      const playerIdx = activePlayer ? allPlayers.findIndex(p=>p.id===activePlayer.id) : 0;
+
+      return (
+        <div className="space-y-4 slide-up">
+          <div className="flex items-center gap-3">
+            <button onClick={()=>navigate(`#/season/${bookId}`)} className="p-2 hover:bg-slate-100 rounded-xl">{Icons.arrowLeft({size:20,className:'text-slate-400'})}</button>
+            <div>
+              <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">{book.name} Season</p>
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">{parsha.name} <span className="text-base text-slate-400 font-hebrew">{parsha.hebrewName}</span></h2>
+            </div>
+          </div>
+
+          {step !== 'choose_mode' && step !== 'select_players' && step !== 'loading' && (
+            <div className="flex items-center gap-1 px-1">
+              {stepLabels.map((label,i) => {
+                const isActive = i<=currentIdx;
+                const isCurrent = i===currentIdx;
+                return (
+                  <div key={i} className="flex-1">
+                    <div className={`h-1.5 rounded-full transition-all duration-500 ${isCurrent?'bg-indigo-500':isActive?'bg-indigo-300':'bg-slate-200'}`}/>
+                    <p className={`text-[10px] mt-1 text-center ${isCurrent?'text-indigo-600 font-semibold':'text-slate-300'}`}>{label}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Mode chooser (only if no active player and >2 players) */}
+          {step==='choose_mode' && (
+            <div className="space-y-4">
+              {prevScores.length > 0 && (
+                <div className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-amber-600 uppercase">Prev:</span>
+                  {prevScores.slice(-4).map(r => { const pl=allPlayers.find(p=>p.id===r.playerId); return pl ? <span key={r.id} className="text-xs bg-white rounded px-2 py-0.5"><strong className="text-amber-700">{pl.name}</strong> {r.totalScore}</span> : null; })}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3">
+                <button onClick={startSolo} className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 flex items-center gap-4 hover:shadow-lg hover:border-indigo-200 transition-all">
+                  <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center">{Icons.mic({size:28,className:'text-indigo-600'})}</div>
+                  <div className="flex-1 text-left">
+                    <h3 className="font-bold text-slate-800">Solo Reading</h3>
+                    <p className="text-sm text-slate-400">Record your reading and see how you compare</p>
+                  </div>
+                  {Icons.chevronRight({size:20,className:'text-slate-300'})}
+                </button>
+                {allPlayers.length >= 2 && (
+                  <button onClick={startH2H} className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 flex items-center gap-4 hover:shadow-lg hover:border-indigo-200 transition-all">
+                    <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center">{Icons.zap({size:28,className:'text-amber-600'})}</div>
+                    <div className="flex-1 text-left">
+                      <h3 className="font-bold text-slate-800">Head-to-Head Challenge</h3>
+                      <p className="text-sm text-slate-400">Two players compete on the same reading</p>
+                    </div>
+                    {Icons.chevronRight({size:20,className:'text-slate-300'})}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* H2H Player Selection */}
+          {step==='select_players' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+                <h3 className="font-bold text-slate-800 mb-1">Select Two Competitors</h3>
+                <p className="text-sm text-slate-400 mb-4">Choose who will compete in this round.</p>
+                <div className="space-y-2">
+                  {allPlayers.map((player, idx) => {
+                    const isSelected = selectedPlayers.some(p => p.id === player.id);
+                    const selIdx = selectedPlayers.findIndex(p => p.id === player.id);
+                    const colors = getPlayerColor(idx);
+                    return (
+                      <button key={player.id} onClick={() => togglePlayer(player)} className={`w-full p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${isSelected ? 'border-indigo-400 bg-indigo-50' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
+                        <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-lg font-bold`}>{player.name.charAt(0).toUpperCase()}</div>
+                        <span className="flex-1 text-left font-semibold text-slate-800">{player.name}</span>
+                        {isSelected && <span className="inline-flex items-center justify-center w-8 h-8 bg-indigo-600 text-white rounded-full text-sm font-bold">{selIdx + 1}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button onClick={confirmSelection} disabled={selectedPlayers.length !== 2} className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md text-lg disabled:opacity-50 disabled:hover:bg-indigo-600">
+                {Icons.play({size:20})} Start Round
+              </button>
+            </div>
+          )}
+
+          {step==='loading' && <div className="flex flex-col items-center py-20 gap-4">{Icons.loader({size:32,className:'text-indigo-500'})}<p className="text-slate-400">Loading parsha text...</p></div>}
+
+          {/* ===== SOLO MODE ===== */}
+          {step==='record_solo' && activePlayer && <RecorderPanel player={activePlayer} playerIndex={playerIdx>=0?playerIdx:0} parsha={parsha} wordCount={parshaText?.wordCount||0} parshaText={parshaText} prevScores={prevScores} allPlayers={allPlayers} onComplete={(blob,dur)=>{setRoundData(d=>({...d,solo:{audioBlob:blob,duration:dur}})); setStep('score_solo');}} />}
+
+          {step==='score_solo' && activePlayer && <ScoringPanelComp player={activePlayer} playerIndex={playerIdx>=0?playerIdx:0} audioBlob={roundData.solo.audioBlob} duration={roundData.solo.duration} wordCount={parshaText?.wordCount||0} parsha={parsha} onScored={(result)=>{setRoundData(d=>({...d,solo:{...d.solo,...result}})); setStep('results_solo');}} />}
+
+          {step==='results_solo' && activePlayer && <SoloResults player={activePlayer} scoreData={roundData.solo} parsha={parsha} bookId={bookId} navigate={navigate} allPlayers={allPlayers}/>}
+
+          {/* ===== H2H MODE ===== */}
+          {step==='record_p1' && p1 && <RecorderPanel player={p1} playerIndex={0} parsha={parsha} wordCount={parshaText?.wordCount||0} parshaText={parshaText} prevScores={prevScores} allPlayers={allPlayers} onComplete={(blob,dur)=>{setRoundData(d=>({...d,p1:{audioBlob:blob,duration:dur}})); setStep('score_p1');}} />}
+
+          {step==='score_p1' && p1 && <ScoringPanelComp player={p1} playerIndex={0} audioBlob={roundData.p1.audioBlob} duration={roundData.p1.duration} wordCount={parshaText?.wordCount||0} parsha={parsha} onScored={(result)=>{setRoundData(d=>({...d,p1:{...d.p1,...result}})); setStep('record_p2');}} />}
+
+          {step==='record_p2' && p2 && <RecorderPanel player={p2} playerIndex={1} parsha={parsha} wordCount={parshaText?.wordCount||0} parshaText={parshaText} onComplete={(blob,dur)=>{setRoundData(d=>({...d,p2:{audioBlob:blob,duration:dur}})); setStep('score_p2');}} />}
+
+          {step==='score_p2' && p2 && <ScoringPanelComp player={p2} playerIndex={1} audioBlob={roundData.p2.audioBlob} duration={roundData.p2.duration} wordCount={parshaText?.wordCount||0} parsha={parsha} onScored={(result)=>{setRoundData(d=>({...d,p2:{...d.p2,...result}})); setStep('results');}} />}
+
+          {step==='results' && p1 && p2 && <RoundResults players={[p1, p2]} roundData={roundData} parsha={parsha} bookId={bookId} navigate={navigate}/>}
+        </div>
+      );
+    }
+
+    // ===== RECORDER PANEL =====
+    function RecorderPanel({player, playerIndex, parsha, wordCount, parshaText, prevScores, allPlayers, onComplete}) {
+      const {isRecording,duration,audioBlob,audioUrl,error:recError,startRecording,stopRecording,resetRecording} = useAudioRecorder();
+      const [uploadedBlob, setUploadedBlob] = useState(null);
+      const [uploadedUrl, setUploadedUrl] = useState(null);
+      const [uploadDur, setUploadDur] = useState(0);
+      const [mode, setMode] = useState(null);
+      const fileRef = useRef(null);
+
+      const colors = getPlayerColor(playerIndex);
+      const fmtTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
+
+      const handleFile = (e) => { const f=e.target.files[0]; if(!f)return; const url=URL.createObjectURL(f); setUploadedBlob(f); setUploadedUrl(url); const a=new Audio(url); a.onloadedmetadata=()=>setUploadDur(Math.round(a.duration)); };
+      const handleSubmit = () => { if(mode==='record'&&audioBlob) onComplete(audioBlob,duration); else if(mode==='upload'&&uploadedBlob) onComplete(uploadedBlob,uploadDur); };
+
+      const curBlob = mode==='record'?audioBlob:uploadedBlob;
+      const curUrl = mode==='record'?audioUrl:uploadedUrl;
+      const curDur = mode==='record'?duration:uploadDur;
+
+      // Full-screen recording mode: text maximized with floating controls
+      const isActiveRecording = mode==='record' && !audioBlob;
+
+      return (
+        <div className={isActiveRecording ? '' : 'space-y-4'}>
+
+          {/* Full-screen recording view */}
+          {isActiveRecording && (
+            <div className="fixed inset-0 z-50 bg-slate-50 flex flex-col" style={{paddingTop:'env(safe-area-inset-top, 0px)',paddingBottom:'env(safe-area-inset-bottom, 0px)'}}>
+              {/* Header bar */}
+              <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-slate-200 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-xs font-bold`}>{player.name.charAt(0).toUpperCase()}</div>
+                  <span className="font-semibold text-slate-700 text-sm">{player.name}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className={`font-mono font-bold text-lg ${isRecording?'text-red-500':'text-slate-400'}`}>{fmtTime(duration)}</div>
+                  {isRecording && <div className="w-3 h-3 bg-red-500 rounded-full recording-pulse"/>}
+                </div>
+              </div>
+
+              {/* Hebrew text - fills available space, no scroll */}
+              <div className="flex-1 overflow-hidden px-4 py-3 flex flex-col">
+                {parshaText ? (
+                  <div className="flex-1 flex items-start">
+                    <div className="hebrew-text text-2xl sm:text-3xl leading-relaxed sm:leading-loose w-full" style={{fontSize:'clamp(1.3rem, 4vw, 2rem)', lineHeight:'1.9'}}>
+                      {parshaText.verses.map((v,i) => <span key={i}><span className="text-indigo-300 text-sm align-top" style={{fontFamily:'Inter,sans-serif',fontSize:'0.6em'}}>({i+1}) </span>{v} </span>)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-slate-400">Text not available</div>
+                )}
+              </div>
+
+              {/* Floating recording controls */}
+              <div className="flex-shrink-0 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-4 py-4">
+                {recError && <p className="text-sm text-red-500 bg-red-50 rounded-lg p-2 mb-3 text-center">{recError}</p>}
+                <div className="flex items-center justify-center gap-6">
+                  <button onClick={()=>{setMode(null);resetRecording();}} className="text-sm text-slate-400 hover:text-slate-600 px-3 py-2">Cancel</button>
+                  {!isRecording ? (
+                    <button onClick={startRecording} className="w-18 h-18 sm:w-20 sm:h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg transition-all hover:scale-105" style={{width:'4.5rem',height:'4.5rem'}}>{Icons.mic({size:28})}</button>
+                  ) : (
+                    <button onClick={stopRecording} className="w-18 h-18 sm:w-20 sm:h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg transition-all hover:scale-105 recording-pulse" style={{width:'4.5rem',height:'4.5rem'}}>{Icons.square({size:28})}</button>
+                  )}
+                  <span className="text-xs text-slate-400 w-16 text-center">{isRecording?'Tap to stop':'Tap to start'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Normal (non-fullscreen) content */}
+          {!isActiveRecording && (
+            <>
+              <div className={`bg-white rounded-2xl shadow-md border border-slate-100 p-4 ${colors.bg}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-lg font-bold`}>{player.name.charAt(0).toUpperCase()}</div>
+                  <div><h3 className={`text-lg font-bold ${colors.text}`}>{player.name}'s Turn</h3><p className="text-sm text-slate-400">Read the Rishon of {parsha.name}</p></div>
+                </div>
+              </div>
+
+              {/* Previous scores (compact) */}
+              {prevScores && prevScores.length > 0 && !mode && (
+                <div className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-amber-600 uppercase">Prev:</span>
+                  {prevScores.slice(-4).map(r => {
+                    const pl = allPlayers?.find(p => p.id === r.playerId);
+                    return pl ? <span key={r.id} className="text-xs bg-white rounded px-2 py-0.5"><strong className="text-amber-700">{pl.name}</strong> {r.totalScore}</span> : null;
+                  })}
+                </div>
+              )}
+
+              {/* Text preview (before recording) */}
+              {parshaText && !mode && (
+                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-slate-400 font-medium">{parshaText.wordCount} words / {parshaText.verses.length}{parshaText.capped ? ` of ${parshaText.totalVerses}` : ''} verses</span>
+                    <span className="text-xs text-slate-400">{parsha.rishonRef}</span>
+                  </div>
+                  <div className="hebrew-text leading-relaxed" style={{fontSize:'clamp(1.2rem, 3.5vw, 1.6rem)', lineHeight:'1.9'}}>
+                    {parshaText.verses.map((v,i) => <span key={i}><span className="text-indigo-300 text-sm align-top" style={{fontFamily:'Inter,sans-serif',fontSize:'0.65em'}}>({i+1}) </span>{v} </span>)}
+                  </div>
+                </div>
+              )}
+
+              <input ref={fileRef} type="file" accept="audio/*" onChange={handleFile} className="hidden"/>
+
+              {!mode && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={()=>setMode('record')} className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 flex flex-col items-center gap-3 hover:shadow-lg hover:border-red-200 transition-all cursor-pointer py-8">
+                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">{Icons.mic({size:32,className:'text-red-500'})}</div>
+                    <div className="text-center"><p className="font-semibold text-slate-800">Record Live</p><p className="text-xs text-slate-400">Use microphone</p></div>
+                  </button>
+                  <button onClick={()=>{setMode('upload');fileRef.current?.click();}} className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 flex flex-col items-center gap-3 hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer py-8">
+                    <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center">{Icons.upload({size:32,className:'text-indigo-500'})}</div>
+                    <div className="text-center"><p className="font-semibold text-slate-800">Upload File</p><p className="text-xs text-slate-400">Audio file</p></div>
+                  </button>
+                </div>
+              )}
+
+              {mode==='upload' && !uploadedBlob && (
+                <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 text-center space-y-4">
+                  <p className="text-slate-500">Select an audio file to upload</p>
+                  <button onClick={()=>fileRef.current?.click()} className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md">{Icons.upload({size:20})} Choose File</button>
+                  <button onClick={()=>setMode(null)} className="block mx-auto text-sm text-slate-400 hover:text-slate-600">Change method</button>
+                </div>
+              )}
+
+              {curBlob && (
+                <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 space-y-4">
+                  <div className="flex items-center justify-between"><h4 className="font-semibold text-slate-700">Recording Ready</h4><span className="text-sm text-slate-400">{fmtTime(curDur)}</span></div>
+                  {curUrl && <audio controls className="w-full" src={curUrl}/>}
+                  <div className="flex gap-3">
+                    <button onClick={handleSubmit} className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-500 text-white font-semibold rounded-xl hover:bg-emerald-600 shadow-md">{Icons.check({size:20})} Submit Recording</button>
+                    <button onClick={()=>{if(mode==='record')resetRecording();else{setUploadedBlob(null);setUploadedUrl(null);setUploadDur(0);}}} className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-slate-200 text-slate-600 font-semibold rounded-xl">{Icons.refresh({size:20})} Redo</button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // ===== SCORING PANEL (fixed memory leak + judge clarity) =====
+    function ScoringPanelComp({player, playerIndex, audioBlob, duration, wordCount, parsha, onScored}) {
+      const [pronunciation, setPronunciation] = useState(10);
+      const [fluency, setFluency] = useState(8);
+      const [confidence, setConfidence] = useState(8);
+
+      const colors = getPlayerColor(playerIndex);
+
+      const speedScore = calculateSpeedScore(duration, wordCount);
+      const accuracyScore = calculateAccuracyScore({pronunciation,fluency,confidence});
+      const roundScore = calculateRoundScore(speedScore, accuracyScore);
+
+      // Fixed: use useMemo to prevent creating new blob URL on every render
+      const audioUrl = useMemo(() => audioBlob ? URL.createObjectURL(audioBlob) : null, [audioBlob]);
+      useEffect(() => { return () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }; }, [audioUrl]);
+
+      const handleSubmit = () => { onScored({speedScore,accuracyScore,ratings:{pronunciation,fluency,confidence},...roundScore}); };
+
+      const getRubricLabel=(label,value,max)=>{
+        const pct=value/max;
+        if(label==='Pronunciation'){
+          if(pct<=0.25)return{text:'Many mistakes',color:'text-red-500'};if(pct<=0.5)return{text:'Some stumbles',color:'text-amber-500'};
+          if(pct<=0.75)return{text:'Mostly correct',color:'text-blue-500'};if(pct<=0.9)return{text:'Nearly perfect',color:'text-emerald-500'};
+          return{text:'Flawless!',color:'text-emerald-600'};
+        }
+        if(label==='Fluency'){
+          if(pct<=0.27)return{text:'Very choppy',color:'text-red-500'};if(pct<=0.53)return{text:'Getting there',color:'text-amber-500'};
+          if(pct<=0.8)return{text:'Smooth flow',color:'text-blue-500'};return{text:'Beautiful!',color:'text-emerald-600'};
+        }
+        if(label==='Confidence'){
+          if(pct<=0.27)return{text:'Hesitant',color:'text-red-500'};if(pct<=0.53)return{text:'Growing confidence',color:'text-amber-500'};
+          if(pct<=0.8)return{text:'Clear and assured',color:'text-blue-500'};return{text:'Commanding!',color:'text-emerald-600'};
+        }
+        return{text:'',color:''};
+      };
+      const Slider = ({label,desc,value,onChange,max}) => {
+        const rubric=getRubricLabel(label,value,max);
+        return(
+        <div className="space-y-2">
+          <div className="flex items-center justify-between"><div><span className="text-sm font-medium text-slate-700">{label}</span><span className="text-xs text-slate-400 ml-2">{desc}</span></div><span className="text-lg font-bold text-indigo-600">{value}/{max}</span></div>
+          <input type="range" min="0" max={max} value={value} onChange={e=>onChange(parseInt(e.target.value))} className="w-full cursor-pointer" style={{background:`linear-gradient(to right, ${colors.accent} ${(value/max)*100}%, #e2e8f0 ${(value/max)*100}%)`}}/>
+          <p className={`text-xs font-medium ${rubric.color} text-right`}>{rubric.text}</p>
+        </div>);
+      };
+
+      return (
+        <div className="space-y-4">
+          <div className={`bg-white rounded-2xl shadow-md border border-slate-100 p-4 ${colors.bg}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-lg font-bold`}>{player.name.charAt(0).toUpperCase()}</div>
+              <div><h3 className={`text-lg font-bold ${colors.text}`}>Score {player.name}</h3><p className="text-sm text-slate-400">{parsha.name} - {parsha.hebrewName}</p></div>
+            </div>
+          </div>
+
+          {/* Judge instructions */}
+          <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+            <p className="text-sm text-indigo-700 font-medium flex items-center gap-2">
+              {Icons.award({size:16,className:'text-indigo-500'})}
+              Judge: listen to {player.name}'s recording and rate their reading below.
+            </p>
+            <p className="text-xs text-indigo-500 mt-1">The judge should be a third party, or the other competitor if no judge is available.</p>
+          </div>
+
+          {audioUrl && (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-4">
+              <div className="flex items-center gap-3 mb-3">{Icons.volume({size:20,className:'text-slate-400'})}<h4 className="text-sm font-semibold text-slate-600">Listen to Recording</h4><span className="text-xs text-slate-400 ml-auto">{Math.floor(duration/60)}:{(duration%60).toString().padStart(2,'0')}</span></div>
+              <audio controls className="w-full" src={audioUrl}/>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+            <div className="flex items-center justify-between mb-1"><h4 className="text-sm font-semibold text-slate-600">Speed Score</h4><span className="text-2xl font-bold text-indigo-600">{speedScore}/50</span></div>
+            <p className="text-xs text-slate-400">{wordCount} words in {Math.floor(duration/60)}m {duration%60}s = {duration>0?Math.round((wordCount/duration)*60):0} words/min</p>
+            <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-full transition-all" style={{width:`${(speedScore/50)*100}%`}}/></div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 space-y-5">
+            <h4 className="text-sm font-semibold text-slate-600">Accuracy Score (Judge's Rating)</h4>
+            <Slider label="Pronunciation" desc="Correct reading of words" value={pronunciation} onChange={setPronunciation} max={20}/>
+            <Slider label="Fluency" desc="Smooth, natural flow" value={fluency} onChange={setFluency} max={15}/>
+            <Slider label="Confidence" desc="Clear and assured reading" value={confidence} onChange={setConfidence} max={15}/>
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100"><span className="text-sm font-medium text-slate-600">Accuracy Total</span><span className="text-2xl font-bold text-indigo-600">{accuracyScore}/50</span></div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 bg-gradient-to-br from-indigo-50 to-white text-center space-y-2">
+            <p className="text-sm text-slate-400">Round Total</p>
+            <p className="text-5xl font-bold text-indigo-700 score-pop">{roundScore.totalScore}</p>
+            <div className="flex items-center justify-center gap-4 text-sm text-slate-500">
+              <span>Speed: {speedScore}</span><span>+</span><span>Accuracy: {accuracyScore}</span>
+              {roundScore.bonusPoints>0 && <><span>+</span><span className="text-amber-500 font-semibold">Bonus: {roundScore.bonusPoints}</span></>}
+            </div>
+            {roundScore.bonuses.length>0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                {roundScore.bonuses.map((b,i) => <span key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">{b.icon} {b.name} +{b.points}</span>)}
+              </div>
+            )}
+          </div>
+
+          <button onClick={handleSubmit} className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 bg-emerald-500 text-white font-semibold rounded-xl hover:bg-emerald-600 shadow-md text-lg">{Icons.check({size:20})} Confirm Score</button>
+        </div>
+      );
+    }
+
+    // ===== SOLO RESULTS =====
+    function SoloResults({player, scoreData, parsha, bookId, navigate, allPlayers}) {
+      const [saved, setSaved] = useState(false);
+      const [careerStat, setCareerStat] = useState(null);
+      const [showConfetti, setShowConfetti] = useState(false);
+      const [rankUp, setRankUp] = useState(null);
+      const [newBadges, setNewBadges] = useState([]);
+      const prevRankRef = useRef(null);
+      const prevBadgeIdsRef = useRef(null);
+
+      // Capture pre-save state
+      useEffect(()=>{
+        if(!saved&&!prevRankRef.current){
+          const allR=getRounds().filter(r=>r.scored);
+          const total=getPlayerBestTotal(player.id,allR);
+          prevRankRef.current=getRank(total);
+          prevBadgeIdsRef.current=getUnlockedAchievements(player.id,allR).map(a=>a.id);
+        }
+      },[]);
+
+      useEffect(() => {
+        if(saved) return;
+        addRound({playerId:player.id,parshaId:parsha.id,bookId,duration:scoreData.duration,speedScore:scoreData.speedScore,accuracyScore:scoreData.accuracyScore,totalScore:scoreData.totalScore,bonuses:scoreData.bonuses,bonusPoints:scoreData.bonusPoints,ratings:scoreData.ratings,scored:true});
+        const allRounds = getRounds().filter(r=>r.scored);
+        const total = getPlayerBestTotal(player.id, allRounds);
+        const streak = getPlayerStreak(player.id, allRounds);
+        setCareerStat({totalPoints:total, rank:getRank(total), nextRank:getNextRank(total), streak});
+        setSaved(true);
+
+        // Check rank-up
+        const newRank=getRank(total);
+        if(prevRankRef.current&&newRank.id!==prevRankRef.current.id){setRankUp(newRank);setShowConfetti(true);}
+        // Check new badges
+        const nowBadges=getUnlockedAchievements(player.id,allRounds);
+        const nb=nowBadges.filter(a=>!prevBadgeIdsRef.current?.includes(a.id));
+        if(nb.length>0)setNewBadges(nb);
+        // Celebrate good scores
+        if(scoreData.totalScore>=80) setTimeout(()=>{setShowConfetti(true);playVictorySound();vibrateDevice([100,50,100]);},300);
+        if(nb.length>0) setTimeout(()=>playBadgeSound(),1200);
+      }, [saved]);
+
+      // Other players' scores for this parsha
+      const allScoredRounds = getRounds().filter(r=>r.scored&&r.parshaId===parsha.id&&r.bookId===bookId);
+      const otherScores = allScoredRounds.filter(r=>r.playerId!==player.id);
+      // Best per-player for comparison
+      const comparisonMap = {};
+      allScoredRounds.forEach(r=>{
+        if(!comparisonMap[r.playerId]||(r.totalScore||0)>(comparisonMap[r.playerId].totalScore||0)) comparisonMap[r.playerId]=r;
+      });
+      const comparison = Object.values(comparisonMap).sort((a,b)=>(b.totalScore||0)-(a.totalScore||0));
+
+      // Next parsha
+      const parshaList = getParshiotForBook(bookId);
+      const currentParshaIdx = parshaList.findIndex(p => p.id === parsha.id);
+      const nextParsha = currentParshaIdx < parshaList.length - 1 ? parshaList[currentParshaIdx + 1] : null;
+
+      const playerIdx = allPlayers.findIndex(p=>p.id===player.id);
+      const colors = getPlayerColor(playerIdx>=0?playerIdx:0);
+
+      return (
+        <div className="space-y-4 slide-up">
+          <ConfettiCanvas active={showConfetti} duration={4000}/>
+
+          {/* Your Score */}
+          <div className="bg-white rounded-2xl shadow-md border border-indigo-200 p-6 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 text-center">
+            <div className={`w-16 h-16 mx-auto rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-2xl font-bold mb-3 bounce-in`}>{player.name.charAt(0).toUpperCase()}</div>
+            <p className="text-sm text-slate-500">{player.name}'s Score</p>
+            <div className="text-5xl font-bold text-indigo-700 my-3 score-pop">{scoreData.totalScore}</div>
+            <div className="flex items-center justify-center gap-4 text-sm text-slate-500">
+              <span>Speed: {scoreData.speedScore}/50</span>
+              <span>Accuracy: {scoreData.accuracyScore}/50</span>
+              {scoreData.bonusPoints>0 && <span className="text-amber-500 font-semibold">+{scoreData.bonusPoints} bonus</span>}
+            </div>
+            {scoreData.bonuses?.length>0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+                {scoreData.bonuses.map((b,i) => <span key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">{b.icon} {b.name}</span>)}
+              </div>
+            )}
+          </div>
+
+          {/* Parsha Leaderboard - how you compare */}
+          {comparison.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-5">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">{Icons.trophy({size:14,className:'text-amber-500'})} {parsha.name} Leaderboard</h4>
+              <div className="space-y-2">
+                {comparison.map((r,idx) => {
+                  const pl = allPlayers.find(p=>p.id===r.playerId);
+                  const isYou = r.playerId===player.id;
+                  return (
+                    <div key={r.playerId} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${isYou?'bg-indigo-50 border border-indigo-200':'bg-slate-50'}`}>
+                      <span className={`w-6 text-center text-sm font-bold ${idx===0?'text-amber-500':isYou?'text-indigo-600':'text-slate-400'}`}>{idx+1}</span>
+                      <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getPlayerColor(allPlayers.indexOf(pl)).grad} flex items-center justify-center text-white text-xs font-bold`}>{pl?.name?.charAt(0)||'?'}</div>
+                      <span className={`flex-1 font-medium ${isYou?'text-indigo-700':'text-slate-700'}`}>{pl?.name||'Unknown'} {isYou?'(you)':''}</span>
+                      <span className={`font-bold ${isYou?'text-indigo-600':'text-slate-600'}`}>{r.totalScore}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Career Progress */}
+          {careerStat && (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-5">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">{Icons.trendingUp({size:14})} Your Progress</h4>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{careerStat.rank.icon}</span>
+                  <span className="font-semibold text-indigo-600">{careerStat.rank.name}</span>
+                  {careerStat.streak > 0 && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 rounded-full text-xs font-semibold text-orange-600">{Icons.flame({size:10,className:'text-orange-500'})} {careerStat.streak}w</span>}
+                </div>
+                <span className="font-bold text-slate-800">{careerStat.totalPoints} pts</span>
+              </div>
+              {careerStat.nextRank && (
+                <div>
+                  <div className="flex justify-between text-xs text-slate-400 mb-1"><span>{careerStat.rank.name}</span><span>{careerStat.nextRank.nextRank.name} ({careerStat.nextRank.pointsNeeded} to go)</span></div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-full transition-all duration-1000" style={{width:`${Math.min(100,careerStat.nextRank.progress*100)}%`}}/></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rank Up */}
+          {rankUp&&(
+            <div className="bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-2xl border-2 border-amber-300 p-8 text-center space-y-3 score-pop">
+              <div className="text-6xl">{rankUp.icon}</div>
+              <h3 className="text-2xl font-bold text-slate-800">Rank Up!</h3>
+              <p className="text-lg text-amber-700 font-semibold">You're now a {rankUp.name}!</p>
+              <p className="text-xl font-hebrew text-indigo-600">{rankUp.hebrewName}</p>
+            </div>
+          )}
+
+          {/* New Badges */}
+          {newBadges.length>0&&(
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl border border-purple-200 p-6 text-center space-y-3">
+              <h3 className="text-lg font-bold text-slate-800">Badge{newBadges.length>1?'s':''} Unlocked!</h3>
+              <div className="flex flex-wrap justify-center gap-3">
+                {newBadges.map(b=>(
+                  <div key={b.id} className="bg-white rounded-xl p-4 shadow-sm border border-purple-100 score-pop">
+                    <div className="text-3xl mb-1">{b.icon}</div>
+                    <p className="text-sm font-semibold text-slate-700">{b.name}</p>
+                    <p className="text-[10px] text-slate-400">{b.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={()=>{window.location.hash=`#/round/${bookId}/${parsha.id}`;window.location.reload();}} className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-white border-2 border-indigo-200 text-indigo-700 font-semibold rounded-xl hover:bg-indigo-50 text-sm transition-all">
+                {Icons.refresh({size:16})} Read Again
+              </button>
+              {nextParsha ? (
+                <button onClick={()=>navigate(`#/round/${bookId}/${nextParsha.id}`)} className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md text-sm transition-all">
+                  Next Parsha {Icons.chevronRight({size:16})}
+                </button>
+              ) : (
+                <button onClick={()=>navigate(`#/season/${bookId}`)} className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md text-sm transition-all">
+                  Season {Icons.chevronRight({size:16})}
+                </button>
+              )}
+            </div>
+            <button onClick={()=>navigate(`#/season/${bookId}`)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-slate-500 hover:text-slate-700 font-medium text-sm transition-colors">
+              Back to {getBook(bookId)?.name || 'Season'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== ROUND RESULTS (H2H) =====
+    function RoundResults({players, roundData, parsha, bookId, navigate}) {
+      const [saved, setSaved] = useState(false);
+      const [careerStats, setCareerStats] = useState([]);
+      const [showConfetti, setShowConfetti] = useState(false);
+      const [rankUps, setRankUps] = useState([]);
+      const [newBadges, setNewBadges] = useState([]);
+      const prevRanksRef = useRef(null);
+      const prevBadgeIdsRef = useRef(null);
+      const p1=roundData.p1, p2=roundData.p2;
+
+      // Capture pre-save state
+      useEffect(()=>{
+        if(!saved&&!prevRanksRef.current){
+          const allR=getRounds().filter(r=>r.scored);
+          prevRanksRef.current=players.map(p=>{
+            const total=getPlayerBestTotal(p.id,allR);
+            return{playerId:p.id,rank:getRank(total)};
+          });
+          prevBadgeIdsRef.current=players.map(p=>({playerId:p.id,ids:getUnlockedAchievements(p.id,allR).map(a=>a.id)}));
+        }
+      },[]);
+
+      useEffect(() => {
+        if(saved) return;
+        addRound({playerId:players[0].id,parshaId:parsha.id,bookId,duration:p1.duration,speedScore:p1.speedScore,accuracyScore:p1.accuracyScore,totalScore:p1.totalScore,bonuses:p1.bonuses,bonusPoints:p1.bonusPoints,ratings:p1.ratings,scored:true});
+        addRound({playerId:players[1].id,parshaId:parsha.id,bookId,duration:p2.duration,speedScore:p2.speedScore,accuracyScore:p2.accuracyScore,totalScore:p2.totalScore,bonuses:p2.bonuses,bonusPoints:p2.bonusPoints,ratings:p2.ratings,scored:true});
+
+        const allRounds = getRounds().filter(r => r.scored);
+        const stats = players.map(player => {
+          const total = getPlayerBestTotal(player.id, allRounds);
+          const streak = getPlayerStreak(player.id, allRounds);
+          return {player, totalPoints:total, rank:getRank(total), nextRank:getNextRank(total), streak};
+        });
+        setCareerStats(stats);
+        setSaved(true);
+
+        // Check for rank-ups
+        if(prevRanksRef.current){
+          const ups=[];
+          players.forEach(player=>{
+            const prev=prevRanksRef.current.find(r=>r.playerId===player.id);
+            const newTotal=getPlayerBestTotal(player.id,allRounds);
+            const newRank=getRank(newTotal);
+            if(prev&&newRank.id!==prev.rank.id) ups.push({player,rank:newRank});
+          });
+          if(ups.length>0){setRankUps(ups);setShowConfetti(true);}
+        }
+        // Check for new badges
+        let nb=[];
+        if(prevBadgeIdsRef.current){
+          players.forEach(player=>{
+            const prev=prevBadgeIdsRef.current.find(r=>r.playerId===player.id);
+            const nowBadges=getUnlockedAchievements(player.id,allRounds);
+            const newOnes=nowBadges.filter(a=>!prev?.ids?.includes(a.id));
+            if(newOnes.length>0)nb.push({player,badges:newOnes});
+          });
+          if(nb.length>0)setNewBadges(nb);
+        }
+        // Trigger confetti + sound for winner
+        if(p1.totalScore!==p2.totalScore) {
+          setTimeout(()=>{setShowConfetti(true); playVictorySound(); vibrateDevice([100,50,100]);},300);
+        }
+        // Sound for new badges
+        if(nb.length>0) setTimeout(()=>playBadgeSound(),1200);
+      }, [saved]);
+
+      const winner = p1.totalScore>p2.totalScore?0:p2.totalScore>p1.totalScore?1:-1;
+      const pData = [
+        {player:players[0],score:p1,colors:getPlayerColor(0)},
+        {player:players[1],score:p2,colors:getPlayerColor(1)},
+      ];
+
+      // Next parsha logic
+      const parshaList = getParshiotForBook(bookId);
+      const currentParshaIdx = parshaList.findIndex(p => p.id === parsha.id);
+      const nextParsha = currentParshaIdx < parshaList.length - 1 ? parshaList[currentParshaIdx + 1] : null;
+
+      return (
+        <div className="space-y-4 slide-up">
+          <ConfettiCanvas active={showConfetti} duration={4000}/>
+          <div className="bg-white rounded-2xl shadow-md border border-amber-200 p-6 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-50 text-center py-8 glow-pulse">
+            {winner>=0 ? (
+              <>
+                <div className="text-amber-500 mb-3 bounce-in">{Icons.trophy({size:56,className:'mx-auto drop-shadow-lg'})}</div>
+                <h2 className="text-3xl font-bold text-slate-800 bounce-in" style={{animationDelay:'0.2s'}}>{players[winner].name} Wins!</h2>
+                <p className="text-slate-500 mt-2 text-lg fade-in-up" style={{animationDelay:'0.4s'}}>{Math.abs(p1.totalScore-p2.totalScore)} point lead</p>
+              </>
+            ) : (
+              <>
+                <div className="text-amber-500 mb-3 bounce-in">{Icons.star({size:56,className:'mx-auto drop-shadow-lg'})}</div>
+                <h2 className="text-3xl font-bold text-slate-800 bounce-in" style={{animationDelay:'0.2s'}}>It's a Tie!</h2>
+                <p className="text-slate-500 mt-2 text-lg fade-in-up" style={{animationDelay:'0.4s'}}>Both scored {p1.totalScore} points</p>
+              </>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {pData.map(({player,score,colors},idx) => (
+              <div key={player.id} className={`bg-white rounded-2xl shadow-md border border-slate-100 p-4 text-center ${winner===idx?'ring-2 ring-amber-300':''}`}>
+                <div className={`w-14 h-14 mx-auto rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-xl font-bold mb-3`}>{player.name.charAt(0).toUpperCase()}</div>
+                <h3 className="font-bold text-slate-800">{player.name}</h3>
+                <div className="text-4xl font-bold text-indigo-600 my-3 score-pop">{score.totalScore}</div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between text-slate-500"><span>Speed</span><span className="font-semibold">{score.speedScore}/50</span></div>
+                  <div className="flex justify-between text-slate-500"><span>Accuracy</span><span className="font-semibold">{score.accuracyScore}/50</span></div>
+                  {score.bonusPoints>0 && <div className="flex justify-between text-amber-600"><span>Bonuses</span><span className="font-semibold">+{score.bonusPoints}</span></div>}
+                </div>
+                {score.bonuses?.length>0 && <div className="mt-3 space-y-1">{score.bonuses.map((b,i)=><div key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 w-full justify-center">{b.icon} {b.name}</div>)}</div>}
+                {winner===idx && <div className="mt-3"><span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">{Icons.trophy({size:12})} Winner</span></div>}
+              </div>
+            ))}
+          </div>
+
+          {careerStats.length>0 && (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+              <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">{Icons.trendingUp({size:16})} Career Progress</h4>
+              <div className="space-y-4">
+                {careerStats.map(({player,totalPoints,rank,nextRank,streak}) => (
+                  <div key={player.id} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{rank.icon}</span>
+                        <span className="font-semibold text-slate-700">{player.name}</span>
+                        <span className="text-sm text-indigo-600 font-medium">{rank.name}</span>
+                        {streak > 0 && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 rounded-full text-xs font-semibold text-orange-600">{Icons.flame({size:10,className:'text-orange-500'})} {streak}w</span>}
+                      </div>
+                      <span className="font-bold text-slate-800">{totalPoints} pts</span>
+                    </div>
+                    {nextRank && (
+                      <div>
+                        <div className="flex justify-between text-xs text-slate-400 mb-1"><span>{rank.name}</span><span>{nextRank.nextRank.name} ({nextRank.pointsNeeded} pts to go)</span></div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-full transition-all duration-1000" style={{width:`${Math.min(100,nextRank.progress*100)}%`}}/></div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rank Up Celebrations */}
+          {rankUps.length>0&&(
+            <div className="bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-2xl border-2 border-amber-300 p-8 text-center space-y-3 score-pop">
+              <div className="text-6xl">{rankUps[0].rank.icon}</div>
+              <h3 className="text-2xl font-bold text-slate-800">Rank Up!</h3>
+              {rankUps.map(({player,rank})=>(
+                <div key={player.id} className="mt-2">
+                  <p className="text-lg text-amber-700 font-semibold">{player.name} is now a {rank.name}!</p>
+                  <p className="text-xl font-hebrew text-indigo-600">{rank.hebrewName}</p>
+                  <p className="text-sm text-slate-500">{rank.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* New Badges */}
+          {newBadges.length>0&&(
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl border border-purple-200 p-6 text-center space-y-3">
+              <h3 className="text-lg font-bold text-slate-800">New Badge{newBadges.reduce((s,n)=>s+n.badges.length,0)>1?'s':''} Unlocked!</h3>
+              <div className="flex flex-wrap justify-center gap-4">
+                {newBadges.map(({player,badges})=>badges.map(b=>(
+                  <div key={b.id+player.id} className="bg-white rounded-xl p-4 shadow-sm border border-purple-100 score-pop">
+                    <div className="text-3xl mb-1">{b.icon}</div>
+                    <p className="text-sm font-semibold text-slate-700">{b.name}</p>
+                    <p className="text-[10px] text-slate-400">{player.name}</p>
+                    <p className="text-[10px] text-slate-400">{b.desc}</p>
+                  </div>
+                )))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={()=>{window.location.hash=`#/round/${bookId}/${parsha.id}`;window.location.reload();}} className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-white border-2 border-indigo-200 text-indigo-700 font-semibold rounded-xl hover:bg-indigo-50 text-sm transition-all">
+                {Icons.refresh({size:16})} Rematch
+              </button>
+              {nextParsha ? (
+                <button onClick={()=>navigate(`#/round/${bookId}/${nextParsha.id}`)} className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md text-sm transition-all">
+                  Next Parsha {Icons.chevronRight({size:16})}
+                </button>
+              ) : (
+                <button onClick={()=>navigate(`#/season/${bookId}`)} className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md text-sm transition-all">
+                  Season {Icons.chevronRight({size:16})}
+                </button>
+              )}
+            </div>
+            <button onClick={()=>navigate(`#/season/${bookId}`)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-slate-500 hover:text-slate-700 font-medium text-sm transition-colors">
+              Back to {getBook(bookId)?.name || 'Season'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== LEADERBOARD =====
+    function Leaderboard({navigate, activePlayer}) {
+      const [players, setPlayersState] = useState([]);
+      const [rounds, setRoundsState] = useState([]);
+      const [tab, setTab] = useState('weekly');
+      useEffect(() => { setPlayersState(getPlayers()); setRoundsState(getRounds().filter(r=>r.scored)); }, []);
+
+      if(players.length===0) return <div className="text-center py-20 text-slate-400">{Icons.trophy({size:48,className:'mx-auto mb-4 opacity-30'})}<p>No players set up yet</p></div>;
+
+      const careerData = players.map(p => {
+        const pr = rounds.filter(r=>r.playerId===p.id);
+        const total = getPlayerBestTotal(p.id, rounds);
+        const bestRounds = getBestScorePerParsha(p.id, rounds);
+        const streak = getPlayerStreak(p.id, rounds);
+        return {player:p,totalPoints:total,roundsPlayed:pr.length,avgScore:bestRounds.length>0?Math.round(total/bestRounds.length):0,rank:getRank(total),nextRank:getNextRank(total),best:pr.length>0?Math.max(...pr.map(r=>r.totalScore||0)):0,streak};
+      }).sort((a,b)=>b.totalPoints-a.totalPoints);
+
+      const allScores = rounds.map(r=>({...r,playerName:players.find(p=>p.id===r.playerId)?.name||'Unknown'}));
+      const highest = allScores.length>0?allScores.reduce((m,r)=>r.totalScore>m.totalScore?r:m):null;
+
+      return (
+        <div className="space-y-6 slide-up">
+          <div className="flex items-center gap-3">
+            <button onClick={()=>navigate('#/')} className="p-2 hover:bg-slate-100 rounded-xl">{Icons.arrowLeft({size:20,className:'text-slate-400'})}</button>
+            <div><h2 className="text-xl font-bold text-slate-800">Leaderboard</h2><p className="text-sm text-slate-400">Competition standings and records</p></div>
+          </div>
+
+          <div className="flex bg-slate-100 rounded-xl p-1 overflow-x-auto">
+            {['weekly','career','seasons','badges','records'].map(t => (
+              <button key={t} onClick={()=>setTab(t)} className={`flex-1 py-2.5 px-3 rounded-lg text-xs sm:text-sm font-medium transition-all capitalize whitespace-nowrap ${tab===t?'bg-white text-indigo-600 shadow-sm':'text-slate-400 hover:text-slate-600'}`}>{t}</button>
+            ))}
+          </div>
+
+          {tab==='weekly' && (() => {
+            const weeklyRnds = getWeeklyRounds(rounds);
+            const weekStart = getWeekStart(new Date());
+            const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+            const weekLabel = `${weekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} - ${weekEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
+            const weeklyData = players.map(p => {
+              const wr = weeklyRnds.filter(r=>r.playerId===p.id);
+              const pts = wr.reduce((s,r)=>s+(r.totalScore||0),0);
+              const best = wr.length>0?Math.max(...wr.map(r=>r.totalScore||0)):0;
+              return {player:p, weekPts:pts, weekRounds:wr.length, best};
+            }).sort((a,b)=>b.weekPts-a.weekPts);
+            const anyPlayed = weeklyData.some(d=>d.weekRounds>0);
+
+            return (
+              <div className="space-y-4">
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl border border-indigo-200 p-5 text-center">
+                  <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">{Icons.calendar({size:14,className:'inline mr-1'})} This Week</p>
+                  <p className="text-sm text-slate-500 mt-1">{weekLabel}</p>
+                </div>
+                {!anyPlayed ? (
+                  <div className="text-center py-12 text-slate-400">
+                    <p className="text-lg mb-2">No rounds played this week yet</p>
+                    <p className="text-sm">Play a round to start this week's leaderboard!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {weeklyData.map(({player,weekPts,weekRounds,best},idx) => {
+                      const isLeader = idx===0 && weekPts>0;
+                      const streak = getPlayerStreak(player.id, rounds);
+                      const atRisk = isStreakAtRisk(player.id, rounds);
+                      return (
+                        <div key={player.id} className={`bg-white rounded-2xl shadow-md border border-slate-100 p-5 flex items-center gap-4 ${isLeader?'ring-2 ring-amber-200 bg-gradient-to-br from-amber-50 to-white':''}`}>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold text-white ${isLeader?'bg-gradient-to-br from-amber-400 to-amber-600':'bg-gradient-to-br from-slate-400 to-slate-500'}`}>
+                            {weekRounds>0 ? (idx===0?'1st':idx===1?'2nd':'3rd').charAt(0) : '-'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-slate-800 truncate">{player.name}</h4>
+                              {isLeader && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">Leader</span>}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                              <span>{weekRounds} round{weekRounds!==1?'s':''}</span>
+                              {best>0 && <span>Best: {best}</span>}
+                              {streak>0 && <span className="inline-flex items-center gap-1 text-orange-500">{Icons.flame({size:10})} {streak}w</span>}
+                              {atRisk && <span className="text-red-500 font-semibold">Streak at risk!</span>}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-indigo-600">{weekPts}</p>
+                            <p className="text-[10px] text-slate-400">week pts</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {tab==='career' && (
+            <div className="space-y-4">
+              {careerData.map(({player,totalPoints,roundsPlayed,avgScore,rank,nextRank,best,streak},idx) => (
+                <div key={player.id} className={`bg-white rounded-2xl shadow-md border border-slate-100 p-6 ${idx===0?'ring-2 ring-amber-200 bg-gradient-to-br from-amber-50 to-white':''}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white ${idx===0?'bg-gradient-to-br from-amber-400 to-amber-600':'bg-gradient-to-br from-slate-400 to-slate-500'}`}>{player.name.charAt(0).toUpperCase()}</div>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg text-slate-800">{player.name}</h3>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-lg">{rank.icon}</span>
+                        <span className="font-medium text-indigo-600">{rank.name}</span>
+                        <span className="text-slate-300">-</span>
+                        <span className="text-slate-400">{rank.description}</span>
+                        {streak > 0 && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 rounded-full text-xs font-semibold text-orange-600">{Icons.flame({size:10,className:'text-orange-500'})} {streak}w streak</span>}
+                      </div>
+                    </div>
+                    <div className="text-right"><p className="text-3xl font-bold text-indigo-600">{totalPoints}</p><p className="text-xs text-slate-400">career pts</p></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+                    <div className="text-center"><p className="text-lg font-bold text-slate-700">{roundsPlayed}</p><p className="text-xs text-slate-400">Rounds</p></div>
+                    <div className="text-center"><p className="text-lg font-bold text-slate-700">{avgScore}</p><p className="text-xs text-slate-400">Avg Score</p></div>
+                    <div className="text-center"><p className="text-lg font-bold text-slate-700">{best||'-'}</p><p className="text-xs text-slate-400">Best</p></div>
+                  </div>
+                  {nextRank && (
+                    <div className="mt-4">
+                      <div className="flex justify-between text-xs text-slate-400 mb-1"><span>{rank.icon} {rank.name}</span><span>{nextRank.nextRank.icon} {nextRank.nextRank.name} (need {nextRank.pointsNeeded} more)</span></div>
+                      <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-full" style={{width:`${Math.min(100,nextRank.progress*100)}%`}}/></div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+                <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Rank System</h4>
+                <div className="space-y-2">
+                  {RANKS.map(r => (
+                    <div key={r.id} className="flex items-center gap-3 text-sm"><span className="text-lg w-8 text-center">{r.icon}</span><span className="font-medium text-slate-700 w-20">{r.name}</span><span className="text-slate-400 flex-1">{r.hebrewName} - {r.description}</span><span className="text-xs text-slate-300">{r.minPoints}+ pts</span></div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab==='seasons' && (
+            <div className="space-y-4">
+              {BOOKS.map(book => {
+                const ps = players.map(p=>{const sr=rounds.filter(r=>r.playerId===p.id&&r.bookId===book.id);return{player:p,pts:getPlayerBestTotal(p.id,rounds,book.id),rds:sr.length};}).sort((a,b)=>b.pts-a.pts);
+                const hasR = ps.some(p=>p.rds>0);
+                return (
+                  <div key={book.id} className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${book.color} flex items-center justify-center text-xl`}>{book.icon}</div>
+                      <div><h4 className="font-bold text-slate-800">{book.name}</h4><p className="text-xs text-slate-400">{book.hebrewName}</p></div>
+                    </div>
+                    {hasR ? (
+                      <div className={`grid gap-3 ${ps.length <= 3 ? 'grid-cols-' + Math.min(ps.length, 3) : 'grid-cols-3'}`}>
+                        {ps.map(({player,pts,rds},idx)=>(
+                          <div key={player.id} className={`rounded-xl p-3 text-center ${idx===0&&pts>0?'bg-amber-50':'bg-slate-50'}`}>
+                            <p className="text-sm font-medium text-slate-600 truncate">{player.name}</p>
+                            <p className="text-2xl font-bold text-indigo-600">{pts}</p>
+                            <p className="text-[10px] text-slate-400">{rds} rounds</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : <p className="text-sm text-slate-300 text-center py-2">No rounds played yet</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab==='badges' && (
+            <div className="space-y-4">
+              {players.map((player,idx) => {
+                const unlocked=getUnlockedAchievements(player.id,rounds);
+                const unlockedIds=unlocked.map(a=>a.id);
+                return(
+                  <div key={player.id} className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold text-white ${idx===0?'bg-gradient-to-br from-blue-500 to-indigo-600':'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>{player.name.charAt(0).toUpperCase()}</div>
+                      <div><h4 className="font-bold text-slate-800">{player.name}</h4><p className="text-xs text-slate-400">{unlocked.length}/{ACHIEVEMENTS.length} badges</p></div>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {ACHIEVEMENTS.map(a=>{
+                        const got=unlockedIds.includes(a.id);
+                        return(
+                          <div key={a.id} className={`text-center rounded-xl p-2.5 transition-all ${got?'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200':'bg-slate-50 opacity-40'}`}>
+                            <div className="text-xl mb-0.5">{a.icon}</div>
+                            <p className={`text-[10px] font-semibold leading-tight ${got?'text-slate-700':'text-slate-400'}`}>{a.name}</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5 leading-tight hidden sm:block">{a.desc}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab==='records' && (
+            <div className="space-y-3">
+              {rounds.length===0 ? <div className="text-center py-12 text-slate-400">{Icons.award({size:48,className:'mx-auto mb-4 opacity-30'})}<p>No records yet - play some rounds!</p></div> : (
+                <>
+                  {highest && (
+                    <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-4 flex items-center gap-3">
+                      <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">{Icons.trophy({size:24,className:'text-amber-500'})}</div>
+                      <div className="flex-1"><p className="text-xs text-slate-400 uppercase tracking-wider">Highest Score</p><p className="font-bold text-slate-800">{highest.playerName}</p></div>
+                      <p className="text-3xl font-bold text-amber-500">{highest.totalScore}</p>
+                    </div>
+                  )}
+                  <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6">
+                    <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Recent Rounds</h4>
+                    <div className="space-y-2">
+                      {allScores.slice(-10).reverse().map(r => (
+                        <div key={r.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                          <div><p className="text-sm font-medium text-slate-700">{r.playerName}</p><p className="text-xs text-slate-400">{getParsha(r.parshaId)?.name || r.parshaId} - {new Date(r.createdAt).toLocaleDateString()}</p></div>
+                          <div className="text-right"><p className="font-bold text-indigo-600">{r.totalScore}</p><p className="text-[10px] text-slate-400">S:{r.speedScore} A:{r.accuracyScore}</p></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ===== RENDER =====
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
