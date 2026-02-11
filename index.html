@@ -12,6 +12,8 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;500;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -228,32 +230,116 @@
       return { speedScore, accuracyScore, baseScore:base, bonuses, bonusPoints, totalScore:base+bonusPoints };
     }
 
-    // ===== STORAGE =====
-    const SKEYS = { PLAYERS:'kriah_players', ROUNDS:'kriah_rounds', SEASON:'kriah_current_season', TEXT_CACHE:'kriah_text_cache' };
-    const getPlayers = () => JSON.parse(localStorage.getItem(SKEYS.PLAYERS)||'[]');
-    const savePlayers = (p) => localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(p));
-    const createPlayer = (name) => { const ps=getPlayers(); const np={id:crypto.randomUUID(),name,createdAt:new Date().toISOString()}; ps.push(np); savePlayers(ps); return np; };
-    const getRounds = () => JSON.parse(localStorage.getItem(SKEYS.ROUNDS)||'[]');
-    const saveRounds = (r) => localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(r));
-    const addRound = (round) => { const rs=getRounds(); const nr={id:crypto.randomUUID(),...round,createdAt:new Date().toISOString()}; rs.push(nr); saveRounds(rs); return nr; };
-    const getCurrentSeason = () => JSON.parse(localStorage.getItem(SKEYS.SEASON)||'{"bookId":"bereishit"}');
-    const setCurrentSeason = (bookId) => localStorage.setItem(SKEYS.SEASON, JSON.stringify({bookId}));
-    const resetAllData = () => { Object.values(SKEYS).forEach(k=>localStorage.removeItem(k)); localStorage.removeItem('kriah_onboarding_seen'); localStorage.removeItem('kriah_active_player'); };
+    // ===== FIREBASE CONFIG =====
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyD00alAKs4xItDnOIo0QiHuGU4VGRDWbr0",
+      authDomain: "kriah-competition.firebaseapp.com",
+      databaseURL: "https://kriah-competition-default-rtdb.firebaseio.com",
+      projectId: "kriah-competition",
+      storageBucket: "kriah-competition.firebasestorage.app",
+      messagingSenderId: "45961045560",
+      appId: "1:45961045560:web:f25df7d1f14c3cd63928cd"
+    };
+    let _dbRef = null;
+    try {
+      if (typeof firebase !== 'undefined' && FIREBASE_CONFIG.apiKey !== 'PLACEHOLDER') {
+        firebase.initializeApp(FIREBASE_CONFIG);
+        _dbRef = firebase.database().ref('kriah');
+      }
+    } catch(e) { console.warn('Firebase init failed, using localStorage only:', e); }
 
-    // Active player (who's logged in)
+    // ===== STORAGE (with Firebase sync) =====
+    const SKEYS = { PLAYERS:'kriah_players', ROUNDS:'kriah_rounds', SEASON:'kriah_current_season', TEXT_CACHE:'kriah_text_cache' };
+
+    const getPlayers = () => JSON.parse(localStorage.getItem(SKEYS.PLAYERS)||'[]');
+    const savePlayers = (p) => {
+      localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(p));
+      if (_dbRef) { const obj = {}; p.forEach(pl => obj[pl.id] = pl); _dbRef.child('players').set(obj).catch(e => console.warn('FB:', e)); }
+    };
+    const createPlayer = (name) => { const ps=getPlayers(); const np={id:crypto.randomUUID(),name,createdAt:new Date().toISOString()}; ps.push(np); savePlayers(ps); return np; };
+
+    const getRounds = () => JSON.parse(localStorage.getItem(SKEYS.ROUNDS)||'[]');
+    const saveRounds = (r) => {
+      localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(r));
+      if (_dbRef) { const obj = {}; r.forEach(rd => obj[rd.id] = rd); _dbRef.child('rounds').set(obj).catch(e => console.warn('FB:', e)); }
+    };
+    const addRound = (round) => {
+      const rs=getRounds(); const nr={id:crypto.randomUUID(),...round,createdAt:new Date().toISOString()}; rs.push(nr);
+      localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(rs));
+      if (_dbRef) _dbRef.child('rounds').child(nr.id).set(nr).catch(e => console.warn('FB:', e));
+      return nr;
+    };
+
+    const getCurrentSeason = () => JSON.parse(localStorage.getItem(SKEYS.SEASON)||'{"bookId":"bereishit"}');
+    const setCurrentSeason = (bookId) => {
+      const season = {bookId};
+      localStorage.setItem(SKEYS.SEASON, JSON.stringify(season));
+      if (_dbRef) _dbRef.child('season').set(season).catch(e => console.warn('FB:', e));
+    };
+    const resetAllData = () => {
+      Object.values(SKEYS).forEach(k=>localStorage.removeItem(k));
+      localStorage.removeItem('kriah_onboarding_seen'); localStorage.removeItem('kriah_active_player');
+      if (_dbRef) _dbRef.set(null).catch(e => console.warn('FB:', e));
+    };
+
+    // Active player (local only - each device picks their own)
     const getActivePlayerId = () => localStorage.getItem('kriah_active_player');
     const setActivePlayerId = (id) => localStorage.setItem('kriah_active_player', id);
     const clearActivePlayer = () => localStorage.removeItem('kriah_active_player');
     const getActivePlayer = () => { const id = getActivePlayerId(); if(!id) return null; return getPlayers().find(p=>p.id===id) || null; };
 
-    // Text cache for Sefaria responses (v2 = stripped trop)
+    // Text cache (local only - per device)
     const TEXT_CACHE_VERSION = 'v3';
     const getCachedText = (ref) => { try { const c = JSON.parse(localStorage.getItem(SKEYS.TEXT_CACHE)||'{}'); if(c._ver!==TEXT_CACHE_VERSION) { localStorage.removeItem(SKEYS.TEXT_CACHE); return null; } return c[ref] || null; } catch { return null; } };
     const setCachedText = (ref, data) => { try { const c = JSON.parse(localStorage.getItem(SKEYS.TEXT_CACHE)||'{}'); c._ver=TEXT_CACHE_VERSION; c[ref] = data; localStorage.setItem(SKEYS.TEXT_CACHE, JSON.stringify(c)); } catch {} };
 
-    // Onboarding tracking
+    // Onboarding (local only)
     const hasSeenOnboarding = () => localStorage.getItem('kriah_onboarding_seen') === 'true';
     const markOnboardingSeen = () => localStorage.setItem('kriah_onboarding_seen', 'true');
+
+    // ===== FIREBASE REAL-TIME SYNC =====
+    function initFirebaseSync() {
+      if (!_dbRef) return;
+      // On first connect: if Firebase is empty, upload existing local data
+      _dbRef.once('value', (snap) => {
+        if (!snap.exists()) {
+          const players = getPlayers();
+          const rounds = getRounds();
+          const season = getCurrentSeason();
+          if (players.length > 0) { const obj = {}; players.forEach(p => obj[p.id] = p); _dbRef.child('players').set(obj); }
+          if (rounds.length > 0) { const obj = {}; rounds.forEach(r => obj[r.id] = r); _dbRef.child('rounds').set(obj); }
+          _dbRef.child('season').set(season);
+        }
+      });
+      // Listen for real-time changes from any device
+      _dbRef.child('players').on('value', (snap) => {
+        const data = snap.val();
+        localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(data ? Object.values(data) : []));
+        window.dispatchEvent(new Event('kriah-data-changed'));
+      });
+      _dbRef.child('rounds').on('value', (snap) => {
+        const data = snap.val();
+        localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(data ? Object.values(data) : []));
+        window.dispatchEvent(new Event('kriah-data-changed'));
+      });
+      _dbRef.child('season').on('value', (snap) => {
+        const data = snap.val();
+        if (data) localStorage.setItem(SKEYS.SEASON, JSON.stringify(data));
+        window.dispatchEvent(new Event('kriah-data-changed'));
+      });
+    }
+    initFirebaseSync();
+
+    // Hook: components call this to re-render when remote data changes
+    function useDataSync() {
+      const [syncVersion, setSyncVersion] = useState(0);
+      useEffect(() => {
+        const handler = () => setSyncVersion(v => v + 1);
+        window.addEventListener('kriah-data-changed', handler);
+        return () => window.removeEventListener('kriah-data-changed', handler);
+      }, []);
+      return syncVersion;
+    }
 
     // Export/import all data
     function exportAllData() {
@@ -764,6 +850,7 @@
 
     // ===== MAIN APP =====
     function App() {
+      const syncVersion = useDataSync();
       const { route, navigate } = useRouter();
       const { page, bookId, parshaId } = parseRoute(route);
       const [activePlayer, setActivePlayerState] = useState(getActivePlayer());
@@ -789,11 +876,11 @@
         setActivePlayerState(null);
       };
 
-      // Refresh active player when navigating (in case players changed)
+      // Refresh active player when navigating or when data syncs
       useEffect(() => {
         const p = getActivePlayer();
         setActivePlayerState(p);
-      }, [route]);
+      }, [route, syncVersion]);
 
       const activeIdx = activePlayer ? players.findIndex(p=>p.id===activePlayer.id) : 0;
       const activeColors = getPlayerColor(activeIdx >= 0 ? activeIdx : 0);
@@ -859,16 +946,21 @@
 
     // ===== DASHBOARD =====
     function Dashboard({navigate, activePlayer}) {
+      const syncVersion = useDataSync();
       const [players, setPlayers] = useState([]);
       const [currentSeason, setSeason] = useState(null);
       const [thisWeek, setThisWeek] = useState(null);
       const [loadingWeek, setLoadingWeek] = useState(true);
       const [showOnboarding, setShowOnboarding] = useState(false);
 
+      // Refresh data when Firebase syncs
       useEffect(() => {
-        const p = getPlayers();
-        setPlayers(p);
+        setPlayers(getPlayers());
         setSeason(getCurrentSeason());
+      }, [syncVersion]);
+
+      // One-time: fetch this week's parsha + onboarding
+      useEffect(() => {
         fetchThisWeeksParsha().then(data => { setThisWeek(data); setLoadingWeek(false); }).catch(() => setLoadingWeek(false));
         if (!hasSeenOnboarding()) setShowOnboarding(true);
       }, []);
@@ -1138,6 +1230,7 @@
 
     // ===== PLAYER SETUP =====
     function PlayerSetup({navigate, onPlayerChange}) {
+      const syncVersion = useDataSync();
       const [players, setPlayersState] = useState([]);
       const [newName, setNewName] = useState('');
       const [editingId, setEditingId] = useState(null);
@@ -1145,7 +1238,7 @@
       const [showReset, setShowReset] = useState(false);
       const [importMsg, setImportMsg] = useState(null);
       const fileInputRef = useRef(null);
-      useEffect(()=>{ setPlayersState(getPlayers()); },[]);
+      useEffect(()=>{ setPlayersState(getPlayers()); },[syncVersion]);
 
       const MAX_PLAYERS = 6;
       const handleAdd = () => { if(!newName.trim()||players.length>=MAX_PLAYERS) return; const p=createPlayer(newName.trim()); setPlayersState([...players,p]); setNewName(''); if(onPlayerChange) onPlayerChange(); };
@@ -1246,12 +1339,13 @@
 
     // ===== SEASON VIEW (with per-parsha scores) =====
     function SeasonView({bookId, navigate, activePlayer}) {
+      const syncVersion = useDataSync();
       const [players, setPlayersState] = useState([]);
       const [rounds, setRoundsState] = useState([]);
       const book = getBook(bookId);
       const parshiot = getParshiotForBook(bookId);
 
-      useEffect(() => { setPlayersState(getPlayers()); setRoundsState(getRounds().filter(r=>r.scored)); setCurrentSeason(bookId); }, [bookId]);
+      useEffect(() => { setPlayersState(getPlayers()); setRoundsState(getRounds().filter(r=>r.scored)); setCurrentSeason(bookId); }, [bookId, syncVersion]);
 
       if(!book) return <div className="text-center py-12 text-slate-500">Season not found</div>;
 
@@ -2175,10 +2269,11 @@
 
     // ===== LEADERBOARD =====
     function Leaderboard({navigate, activePlayer}) {
+      const syncVersion = useDataSync();
       const [players, setPlayersState] = useState([]);
       const [rounds, setRoundsState] = useState([]);
       const [tab, setTab] = useState('weekly');
-      useEffect(() => { setPlayersState(getPlayers()); setRoundsState(getRounds().filter(r=>r.scored)); }, []);
+      useEffect(() => { setPlayersState(getPlayers()); setRoundsState(getRounds().filter(r=>r.scored)); }, [syncVersion]);
 
       if(players.length===0) return <div className="text-center py-20 text-slate-400">{Icons.trophy({size:48,className:'mx-auto mb-4 opacity-30'})}<p>No players set up yet</p></div>;
 
