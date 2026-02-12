@@ -247,8 +247,15 @@
       if (typeof firebase !== 'undefined' && FIREBASE_CONFIG.apiKey !== 'PLACEHOLDER') {
         firebase.initializeApp(FIREBASE_CONFIG);
         _dbRef = firebase.database().ref('kriah');
+        console.log('[Kriah] Firebase initialized. Testing connection...');
+        // Quick connectivity test
+        firebase.database().ref('.info/connected').on('value', (snap) => {
+          console.log('[Kriah] Firebase connected:', snap.val());
+        });
+      } else {
+        console.warn('[Kriah] Firebase not available, using localStorage only');
       }
-    } catch(e) { console.warn('Firebase init failed, using localStorage only:', e); }
+    } catch(e) { console.warn('[Kriah] Firebase init failed, using localStorage only:', e); }
 
     // ===== STORAGE (with Firebase sync) =====
     const SKEYS = { PLAYERS:'kriah_players', ROUNDS:'kriah_rounds', SEASON:'kriah_current_season', TEXT_CACHE:'kriah_text_cache' };
@@ -300,34 +307,85 @@
     const markOnboardingSeen = () => localStorage.setItem('kriah_onboarding_seen', 'true');
 
     // ===== FIREBASE REAL-TIME SYNC =====
+    let _syncReady = false;
+    let _suppressSync = false; // Prevent echo when we write
+
+    function mergeById(localArr, remoteArr) {
+      // Merge two arrays by id: union of both, remote wins on conflict
+      const map = {};
+      localArr.forEach(item => { if(item.id) map[item.id] = item; });
+      remoteArr.forEach(item => { if(item.id) map[item.id] = item; });
+      return Object.values(map);
+    }
+
     function initFirebaseSync() {
       if (!_dbRef) return;
-      // On first connect: if Firebase is empty, upload existing local data
+
+      // Step 1: Initial merge - combine local + Firebase data (both directions)
       _dbRef.once('value', (snap) => {
-        if (!snap.exists()) {
-          const players = getPlayers();
-          const rounds = getRounds();
-          const season = getCurrentSeason();
-          if (players.length > 0) { const obj = {}; players.forEach(p => obj[p.id] = p); _dbRef.child('players').set(obj); }
-          if (rounds.length > 0) { const obj = {}; rounds.forEach(r => obj[r.id] = r); _dbRef.child('rounds').set(obj); }
-          _dbRef.child('season').set(season);
-        }
-      });
-      // Listen for real-time changes from any device
-      _dbRef.child('players').on('value', (snap) => {
-        const data = snap.val();
-        localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(data ? Object.values(data) : []));
+        const remote = snap.val() || {};
+        const remotePlayers = remote.players ? Object.values(remote.players) : [];
+        const remoteRounds = remote.rounds ? Object.values(remote.rounds) : [];
+        const localPlayers = getPlayers();
+        const localRounds = getRounds();
+        console.log(`[Kriah Sync] Initial: ${remotePlayers.length} remote players, ${localPlayers.length} local players, ${remoteRounds.length} remote rounds, ${localRounds.length} local rounds`);
+
+        // Merge: union of local and remote, deduplicated by id
+        const mergedPlayers = mergeById(localPlayers, remotePlayers);
+        const mergedRounds = mergeById(localRounds, remoteRounds);
+        console.log(`[Kriah Sync] Merged: ${mergedPlayers.length} players, ${mergedRounds.length} rounds`);
+
+        // Save merged data locally
+        localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(mergedPlayers));
+        localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(mergedRounds));
+        if (remote.season) localStorage.setItem(SKEYS.SEASON, JSON.stringify(remote.season));
+
+        // Push merged data back to Firebase (so both devices get everything)
+        _suppressSync = true;
+        const pObj = {}; mergedPlayers.forEach(p => pObj[p.id] = p);
+        const rObj = {}; mergedRounds.forEach(r => rObj[r.id] = r);
+        Promise.all([
+          _dbRef.child('players').set(pObj),
+          _dbRef.child('rounds').set(rObj),
+        ]).then(() => { _suppressSync = false; }).catch(() => { _suppressSync = false; });
+
+        _syncReady = true;
         window.dispatchEvent(new Event('kriah-data-changed'));
-      });
-      _dbRef.child('rounds').on('value', (snap) => {
-        const data = snap.val();
-        localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(data ? Object.values(data) : []));
-        window.dispatchEvent(new Event('kriah-data-changed'));
-      });
-      _dbRef.child('season').on('value', (snap) => {
-        const data = snap.val();
-        if (data) localStorage.setItem(SKEYS.SEASON, JSON.stringify(data));
-        window.dispatchEvent(new Event('kriah-data-changed'));
+
+        // Step 2: Now attach live listeners for ongoing changes
+        _dbRef.child('players').on('value', (snap) => {
+          if (_suppressSync) return;
+          const data = snap.val();
+          if (data === null) {
+            // Remote was cleared (reset) - clear local too
+            localStorage.setItem(SKEYS.PLAYERS, '[]');
+          } else {
+            const remote = Object.values(data);
+            const local = getPlayers();
+            const merged = mergeById(local, remote);
+            localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(merged));
+          }
+          window.dispatchEvent(new Event('kriah-data-changed'));
+        });
+        _dbRef.child('rounds').on('value', (snap) => {
+          if (_suppressSync) return;
+          const data = snap.val();
+          if (data === null) {
+            localStorage.setItem(SKEYS.ROUNDS, '[]');
+          } else {
+            const remote = Object.values(data);
+            const local = getRounds();
+            const merged = mergeById(local, remote);
+            localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(merged));
+          }
+          window.dispatchEvent(new Event('kriah-data-changed'));
+        });
+        _dbRef.child('season').on('value', (snap) => {
+          if (_suppressSync) return;
+          const data = snap.val();
+          if (data) localStorage.setItem(SKEYS.SEASON, JSON.stringify(data));
+          window.dispatchEvent(new Event('kriah-data-changed'));
+        });
       });
     }
     initFirebaseSync();
@@ -341,6 +399,19 @@
         return () => window.removeEventListener('kriah-data-changed', handler);
       }, []);
       return syncVersion;
+    }
+
+    // Hook: Firebase connection status
+    function useFirebaseStatus() {
+      const [status, setStatus] = useState(_dbRef ? 'connecting' : 'offline');
+      useEffect(() => {
+        if (!_dbRef) { setStatus('offline'); return; }
+        const connRef = firebase.database().ref('.info/connected');
+        const handler = (snap) => setStatus(snap.val() ? 'connected' : 'disconnected');
+        connRef.on('value', handler);
+        return () => connRef.off('value', handler);
+      }, []);
+      return status;
     }
 
     // Export/import all data
@@ -921,6 +992,7 @@
     // ===== MAIN APP =====
     function App() {
       const syncVersion = useDataSync();
+      const fbStatus = useFirebaseStatus();
       const { route, navigate } = useRouter();
       const { page, bookId, parshaId } = parseRoute(route);
       const [activePlayer, setActivePlayerState] = useState(getActivePlayer());
@@ -968,7 +1040,10 @@
                 <KriahLogo size={40} className="flex-shrink-0 header-logo" />
                 <div className="min-w-0">
                   <h1 className="text-lg sm:text-xl font-bold tracking-tight">Kriah Competition</h1>
-                  <p className="text-indigo-200 text-[10px] sm:text-xs font-medium truncate">Hebrew Reading Challenge</p>
+                  <p className="text-indigo-200 text-[10px] sm:text-xs font-medium truncate flex items-center gap-1.5">
+                    Hebrew Reading Challenge
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${fbStatus==='connected'?'bg-emerald-400':fbStatus==='disconnected'?'bg-amber-400':'bg-slate-400'}`} title={fbStatus==='connected'?'Synced':'Not synced'}/>
+                  </p>
                 </div>
               </a>
               {activePlayer && (
