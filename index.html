@@ -311,11 +311,19 @@
     let _suppressSync = false; // Prevent echo when we write
 
     function mergeById(localArr, remoteArr) {
-      // Merge two arrays by id: union of both, remote wins on conflict
+      // Merge two arrays by id: union of both, remote wins on conflict (for initial load)
       const map = {};
       localArr.forEach(item => { if(item.id) map[item.id] = item; });
       remoteArr.forEach(item => { if(item.id) map[item.id] = item; });
       return Object.values(map);
+    }
+
+    // When receiving ongoing remote updates: remote is source of truth so deletes propagate.
+    // Only add local items whose id is not in remote (e.g. added offline).
+    function mergeRemoteWithLocal(remoteArr, localArr) {
+      const remoteIds = new Set((remoteArr || []).map(r => r.id).filter(Boolean));
+      const localOnly = (localArr || []).filter(l => l.id && !remoteIds.has(l.id));
+      return [...(remoteArr || []), ...localOnly];
     }
 
     function initFirebaseSync() {
@@ -357,12 +365,11 @@
           if (_suppressSync) return;
           const data = snap.val();
           if (data === null) {
-            // Remote was cleared (reset) - clear local too
             localStorage.setItem(SKEYS.PLAYERS, '[]');
           } else {
             const remote = Object.values(data);
             const local = getPlayers();
-            const merged = mergeById(local, remote);
+            const merged = mergeRemoteWithLocal(remote, local);
             localStorage.setItem(SKEYS.PLAYERS, JSON.stringify(merged));
           }
           window.dispatchEvent(new Event('kriah-data-changed'));
@@ -375,7 +382,7 @@
           } else {
             const remote = Object.values(data);
             const local = getRounds();
-            const merged = mergeById(local, remote);
+            const merged = mergeRemoteWithLocal(remote, local);
             localStorage.setItem(SKEYS.ROUNDS, JSON.stringify(merged));
           }
           window.dispatchEvent(new Event('kriah-data-changed'));
@@ -2062,24 +2069,32 @@
       },[]);
 
       useEffect(() => {
-        if(saved) return;
-        addRound({playerId:player.id,parshaId:parsha.id,bookId,duration:scoreData.duration,speedScore:scoreData.speedScore,accuracyScore:scoreData.accuracyScore,totalScore:scoreData.totalScore,bonuses:scoreData.bonuses,bonusPoints:scoreData.bonusPoints,ratings:scoreData.ratings,scored:true});
-        const allRounds = getRounds().filter(r=>r.scored);
-        const total = getPlayerBestTotal(player.id, allRounds);
-        const streak = getPlayerStreak(player.id, allRounds);
-        setCareerStat({totalPoints:total, rank:getRank(total), nextRank:getNextRank(total), streak});
-        setSaved(true);
+        if (saved) return;
+        const hasRequired = player?.id && parsha?.id && bookId && typeof (scoreData?.duration) === 'number' && typeof (scoreData?.totalScore) === 'number';
+        try {
+          if (hasRequired) {
+            addRound({playerId:player.id,parshaId:parsha.id,bookId,duration:scoreData.duration,speedScore:scoreData.speedScore ?? 0,accuracyScore:scoreData.accuracyScore ?? 0,totalScore:scoreData.totalScore,bonuses:scoreData.bonuses ?? [],bonusPoints:scoreData.bonusPoints ?? 0,ratings:scoreData.ratings ?? {},scored:true});
+          }
+          const allRounds = getRounds().filter(r=>r.scored);
+          const total = getPlayerBestTotal(player.id, allRounds);
+          const streak = getPlayerStreak(player.id, allRounds);
+          setCareerStat({totalPoints:total, rank:getRank(total), nextRank:getNextRank(total), streak});
+          setSaved(true);
 
-        // Check rank-up
-        const newRank=getRank(total);
-        if(prevRankRef.current&&newRank.id!==prevRankRef.current.id){setRankUp(newRank);setShowConfetti(true);}
-        // Check new badges
-        const nowBadges=getUnlockedAchievements(player.id,allRounds);
-        const nb=nowBadges.filter(a=>!prevBadgeIdsRef.current?.includes(a.id));
-        if(nb.length>0)setNewBadges(nb);
-        // Celebrate good scores
-        if(scoreData.totalScore>=80) setTimeout(()=>{setShowConfetti(true);playVictorySound();vibrateDevice([100,50,100]);},300);
-        if(nb.length>0) setTimeout(()=>playBadgeSound(),1200);
+          if (hasRequired) {
+            const newRank=getRank(total);
+            if(prevRankRef.current&&newRank.id!==prevRankRef.current.id){setRankUp(newRank);setShowConfetti(true);}
+            const nowBadges=getUnlockedAchievements(player.id,allRounds);
+            const nb=nowBadges.filter(a=>!prevBadgeIdsRef.current?.includes(a.id));
+            if(nb.length>0)setNewBadges(nb);
+            if((scoreData?.totalScore ?? 0)>=80) setTimeout(()=>{setShowConfetti(true);playVictorySound();vibrateDevice([100,50,100]);},300);
+            if(nb.length>0) setTimeout(()=>playBadgeSound(),1200);
+          }
+        } catch (e) {
+          console.error('[Kriah] SoloResults save error:', e);
+          setCareerStat({totalPoints:0, rank:getRank(0), nextRank:getNextRank(0), streak:0});
+          setSaved(true);
+        }
       }, [saved]);
 
       // Other players' scores for this parsha
@@ -2108,15 +2123,15 @@
           <div className="bg-white rounded-2xl shadow-md border border-indigo-200 p-6 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 text-center">
             <div className={`w-16 h-16 mx-auto rounded-full bg-gradient-to-br ${colors.grad} flex items-center justify-center text-white text-2xl font-bold mb-3 bounce-in`}>{player.name.charAt(0).toUpperCase()}</div>
             <p className="text-sm text-slate-500">{player.name}'s Score</p>
-            <div className="text-5xl font-bold text-indigo-700 my-3 score-pop">{scoreData.totalScore}</div>
+            <div className="text-5xl font-bold text-indigo-700 my-3 score-pop">{scoreData?.totalScore ?? 0}</div>
             <div className="flex items-center justify-center gap-4 text-sm text-slate-500">
-              <span>Speed: {scoreData.speedScore}/50</span>
-              <span>Accuracy: {scoreData.accuracyScore}/50</span>
-              {scoreData.bonusPoints>0 && <span className="text-amber-500 font-semibold">+{scoreData.bonusPoints} bonus</span>}
+              <span>Speed: {scoreData?.speedScore ?? 0}/50</span>
+              <span>Accuracy: {scoreData?.accuracyScore ?? 0}/50</span>
+              {(scoreData?.bonusPoints ?? 0)>0 && <span className="text-amber-500 font-semibold">+{scoreData.bonusPoints} bonus</span>}
             </div>
-            {scoreData.bonuses?.length>0 && (
+            {(scoreData?.bonuses?.length ?? 0)>0 && (
               <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
-                {scoreData.bonuses.map((b,i) => <span key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">{b.icon} {b.name}</span>)}
+                {(scoreData.bonuses || []).map((b,i) => <span key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">{b.icon} {b.name}</span>)}
               </div>
             )}
           </div>
@@ -2132,7 +2147,7 @@
                   return (
                     <div key={r.playerId} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${isYou?'bg-indigo-50 border border-indigo-200':'bg-slate-50'}`}>
                       <span className={`w-6 text-center text-sm font-bold ${idx===0?'text-amber-500':isYou?'text-indigo-600':'text-slate-400'}`}>{idx+1}</span>
-                      <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getPlayerColor(allPlayers.indexOf(pl)).grad} flex items-center justify-center text-white text-xs font-bold`}>{pl?.name?.charAt(0)||'?'}</div>
+                      <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getPlayerColor(pl ? Math.max(0, allPlayers.indexOf(pl)) : 0).grad} flex items-center justify-center text-white text-xs font-bold`}>{pl?.name?.charAt(0)||'?'}</div>
                       <span className={`flex-1 font-medium ${isYou?'text-indigo-700':'text-slate-700'}`}>{pl?.name||'Unknown'} {isYou?'(you)':''}</span>
                       <span className={`font-bold ${isYou?'text-indigo-600':'text-slate-600'}`}>{r.totalScore}</span>
                     </div>
